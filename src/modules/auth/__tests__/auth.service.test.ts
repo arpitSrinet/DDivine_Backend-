@@ -46,6 +46,14 @@ const mockRepo = vi.mocked(authRepository);
 const mockHash = vi.mocked(hashUtils);
 const mockToken = vi.mocked(tokenUtils);
 
+const baseUserFields = {
+  registrationNumber: null,
+  schoolType: null,
+  website: null,
+  schoolLogoFileName: null,
+  verificationDocumentFileName: null,
+};
+
 describe('authService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -76,6 +84,7 @@ describe('authService', () => {
         town: null,
         county: null,
         postcode: null,
+        ...baseUserFields,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -101,6 +110,7 @@ describe('authService', () => {
         town: null,
         county: null,
         postcode: null,
+        ...baseUserFields,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -135,6 +145,7 @@ describe('authService', () => {
         town: null,
         county: null,
         postcode: null,
+        ...baseUserFields,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -170,6 +181,7 @@ describe('authService', () => {
         town: null,
         county: null,
         postcode: null,
+        ...baseUserFields,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -211,6 +223,7 @@ describe('authService', () => {
         town: null,
         county: null,
         postcode: null,
+        ...baseUserFields,
         createdAt: new Date(),
         updatedAt: new Date(),
       });

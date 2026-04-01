@@ -6,6 +6,7 @@
 import crypto from 'node:crypto';
 
 import jwt from 'jsonwebtoken';
+import type { SignOptions } from 'jsonwebtoken';
 
 import { env } from '@/config/env.js';
 
@@ -23,8 +24,10 @@ interface DecodedToken extends TokenPayload {
 
 export function signToken(payload: TokenPayload): string {
   const jti = crypto.randomUUID();
+  const expiresIn = env.JWT_EXPIRES_IN as SignOptions['expiresIn'];
+
   return jwt.sign({ ...payload, jti }, env.JWT_SECRET, {
-    expiresIn: env.JWT_EXPIRES_IN,
+    expiresIn,
   });
 }
 
