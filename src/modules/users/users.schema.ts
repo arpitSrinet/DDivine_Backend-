@@ -1,0 +1,38 @@
+/**
+ * @file users.schema.ts
+ * @description Zod schemas for user profile endpoints. Matches locked frontend contract (Section 8.2).
+ *
+ * Endpoints:
+ *   GET   /api/v1/users/me   → response: UserProfileResponse
+ *   PATCH /api/v1/users/me   → body: UpdateProfileSchema → response: UserProfileResponse
+ *
+ * @module src/modules/users/users.schema
+ */
+import { z } from 'zod';
+
+export const UserProfileResponseSchema = z.object({
+  id: z.string(),
+  email: z.string().email(),
+  firstName: z.string(),
+  lastName: z.string(),
+  phone: z.string().optional(),
+  addressLine1: z.string().optional(),
+  addressLine2: z.string().optional(),
+  town: z.string().optional(),
+  county: z.string().optional(),
+  postcode: z.string().optional(),
+});
+
+export const UpdateProfileSchema = z.object({
+  firstName: z.string().min(1).optional(),
+  lastName: z.string().min(1).optional(),
+  phone: z.string().optional(),
+  addressLine1: z.string().optional(),
+  addressLine2: z.string().optional(),
+  town: z.string().optional(),
+  county: z.string().optional(),
+  postcode: z.string().optional(),
+});
+
+export type IUserProfileResponse = z.infer<typeof UserProfileResponseSchema>;
+export type IUpdateProfile = z.infer<typeof UpdateProfileSchema>;

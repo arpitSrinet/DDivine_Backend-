@@ -1,0 +1,361 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────
+
+enum UserRole {
+  PARENT
+  SCHOOL
+  ADMIN
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  REFUNDED
+  FAILED
+}
+
+enum RefundStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum MatchStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+enum ServiceKey {
+  CURRICULAR
+  EXTRA_CURRICULAR
+  HOLIDAY_CAMPS
+  WRAPAROUND
+}
+
+enum OtpType {
+  SIGNUP
+  PASSWORD_RESET
+}
+
+// ─── User ─────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  role         UserRole
+  firstName    String
+  lastName     String
+  schoolName   String?
+  phone        String?
+  emergencyPhone String?
+  addressLine1 String?
+  addressLine2 String?
+  town         String?
+  county       String?
+  postcode     String?
+  // School-specific fields
+  registrationNumber           String?
+  schoolType                   String?
+  website                      String?
+  schoolLogoFileName           String?
+  verificationDocumentFileName String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  children      Child[]
+  bookings      Booking[]
+  notifications Notification[]
+
+  @@index([email, role])
+}
+
+// ─── Child ────────────────────────────────────────────────
+
+model Child {
+  id                 String   @id @default(cuid())
+  userId             String
+  firstName          String
+  lastName           String
+  dateOfBirth        DateTime
+  gender             String
+  yearGroup          String   @default("Not specified")
+  medicalConditions  String?
+  schoolName         String?
+  firstAidPermission String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emergencyContacts EmergencyContact[]
+  bookings          Booking[]
+
+  @@index([userId])
+}
+
+// ─── EmergencyContact ─────────────────────────────────────
+
+model EmergencyContact {
+  id           String   @id @default(cuid())
+  childId      String
+  name         String
+  phone        String
+  relationship String
+  createdAt    DateTime @default(now())
+
+  child Child @relation(fields: [childId], references: [id], onDelete: Cascade)
+
+  @@index([childId])
+}
+
+// ─── Service ──────────────────────────────────────────────
+
+model Service {
+  id        String     @id @default(cuid())
+  key       ServiceKey @unique
+  title     String
+  summary   String
+  imageSrc  String
+  imageAlt  String
+  isActive  Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  sessions Session[]
+}
+
+// ─── Session ──────────────────────────────────────────────
+
+model Session {
+  id              String   @id @default(cuid())
+  serviceId       String
+  date            DateTime
+  time            String
+  location        String
+  coachName       String?
+  maxCapacity     Int
+  currentCapacity Int      @default(0)
+  minAgeYears     Int
+  maxAgeYears     Int
+  price           Decimal  @db.Decimal(10, 2)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  service  Service   @relation(fields: [serviceId], references: [id])
+  bookings Booking[]
+
+  @@index([serviceId, date])
+  @@index([date, isActive])
+}
+
+// ─── Booking ──────────────────────────────────────────────
+
+model Booking {
+  id          String        @id @default(cuid())
+  userId      String
+  childId     String?
+  sessionId   String
+  status      BookingStatus @default(PENDING)
+  price       Decimal       @db.Decimal(10, 2)
+  cancelledAt DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  user    User     @relation(fields: [userId], references: [id])
+  child   Child?   @relation(fields: [childId], references: [id])
+  session Session  @relation(fields: [sessionId], references: [id])
+  payment Payment?
+
+  @@index([userId, status])
+  @@index([sessionId])
+}
+
+// ─── Payment ──────────────────────────────────────────────
+
+model Payment {
+  id                    String        @id @default(cuid())
+  bookingId             String        @unique
+  stripePaymentIntentId String        @unique
+  amount                Decimal       @db.Decimal(10, 2)
+  currency              String        @default("gbp")
+  status                PaymentStatus @default(PENDING)
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  booking Booking  @relation(fields: [bookingId], references: [id])
+  invoice Invoice?
+  refunds Refund[]
+
+  @@index([stripePaymentIntentId])
+}
+
+// ─── Invoice ──────────────────────────────────────────────
+
+model Invoice {
+  id            String   @id @default(cuid())
+  paymentId     String   @unique
+  pdfUrl        String?
+  xeroInvoiceId String?
+  createdAt     DateTime @default(now())
+
+  payment Payment @relation(fields: [paymentId], references: [id])
+}
+
+// ─── Refund ───────────────────────────────────────────────
+
+model Refund {
+  id             String       @id @default(cuid())
+  paymentId      String
+  stripeRefundId String?      @unique
+  amount         Decimal      @db.Decimal(10, 2)
+  reason         String
+  status         RefundStatus @default(PENDING)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  payment Payment @relation(fields: [paymentId], references: [id])
+}
+
+// ─── Notification ─────────────────────────────────────────
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String
+  title     String
+  body      String
+  isRead    Boolean  @default(false)
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+}
+
+// ─── OTP ──────────────────────────────────────────────────
+
+model Otp {
+  id        String   @id @default(cuid())
+  email     String
+  code      String
+  type      OtpType
+  attempts  Int      @default(0)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([email, type])
+}
+
+// ─── League ───────────────────────────────────────────────
+
+model Team {
+  id        String   @id @default(cuid())
+  name      String
+  schoolId  String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  homeMatches Match[]          @relation("HomeTeam")
+  awayMatches Match[]          @relation("AwayTeam")
+  standing    LeagueStanding?
+}
+
+model Match {
+  id         String      @id @default(cuid())
+  homeTeamId String
+  awayTeamId String
+  homeScore  Int?
+  awayScore  Int?
+  date       DateTime
+  status     MatchStatus @default(SCHEDULED)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  homeTeam Team @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam Team @relation("AwayTeam", fields: [awayTeamId], references: [id])
+
+  @@index([status, date])
+}
+
+model LeagueStanding {
+  id            String   @id @default(cuid())
+  teamId        String   @unique
+  matchesPlayed Int      @default(0)
+  wins          Int      @default(0)
+  draws         Int      @default(0)
+  losses        Int      @default(0)
+  points        Int      @default(0)
+  updatedAt     DateTime @updatedAt
+
+  team Team @relation(fields: [teamId], references: [id])
+}
+
+// ─── Knowledge ────────────────────────────────────────────
+
+model CaseStudy {
+  id        String   @id @default(cuid())
+  title     String
+  body      String
+  tag       String?
+  isActive  Boolean  @default(true)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model FreeActivityGroup {
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  isActive    Boolean  @default(true)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  downloads FreeActivityDownload[]
+}
+
+model FreeActivityDownload {
+  id      String @id @default(cuid())
+  groupId String
+  url     String
+
+  group FreeActivityGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+}
+
+model FaqGroup {
+  id       String  @id @default(cuid())
+  title    String
+  order    Int     @default(0)
+  isActive Boolean @default(true)
+
+  items FaqItem[]
+}
+
+model FaqItem {
+  id       String @id @default(cuid())
+  groupId  String
+  question String
+  answer   String
+  order    Int    @default(0)
+
+  group FaqGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+}
