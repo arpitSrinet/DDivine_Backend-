@@ -48,7 +48,8 @@ async function start() {
   try {
     await redis.connect();
   } catch (err) {
-    logger.warn({ err }, 'Redis connection failed — continuing without Redis');
+    logger.fatal({ err }, 'Redis connection failed — BullMQ and caching require Redis');
+    process.exit(1);
   }
 
   try {

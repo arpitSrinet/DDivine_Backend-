@@ -10,7 +10,7 @@ import { authMiddleware } from '@/shared/middleware/auth.middleware.js';
 import { validate } from '@/shared/middleware/validate.js';
 
 import { usersController } from './users.controller.js';
-import { UpdateProfileSchema } from './users.schema.js';
+import { ChangePasswordSchema, UpdateProfileSchema } from './users.schema.js';
 
 const userProfileSchema = {
   type: 'object',
@@ -19,6 +19,7 @@ const userProfileSchema = {
     email: { type: 'string' },
     firstName: { type: 'string' },
     lastName: { type: 'string' },
+    avatarUrl: { type: 'string' },
     phone: { type: 'string' },
     addressLine1: { type: 'string' },
     addressLine2: { type: 'string' },
@@ -62,6 +63,57 @@ async function usersRoutes(app: FastifyInstance): Promise<void> {
     },
     preHandler: [authMiddleware, validate({ body: UpdateProfileSchema })],
     handler: usersController.updateProfile,
+  });
+
+  app.patch('/api/v1/users/me/password', {
+    schema: {
+      tags: ['Users'],
+      summary: 'Change account password',
+      security: [{ BearerAuth: [] }],
+      body: {
+        type: 'object',
+        required: ['currentPassword', 'newPassword'],
+        properties: {
+          currentPassword: { type: 'string' },
+          newPassword: { type: 'string', minLength: 8 },
+        },
+      },
+      response: {
+        200: { type: 'object', properties: { message: { type: 'string' } } },
+      },
+    },
+    preHandler: [authMiddleware, validate({ body: ChangePasswordSchema })],
+    handler: usersController.changePassword,
+  });
+
+  app.delete('/api/v1/users/me', {
+    schema: {
+      tags: ['Users'],
+      summary: 'Permanently delete the current user account',
+      security: [{ BearerAuth: [] }],
+      response: {
+        200: { type: 'object', properties: { message: { type: 'string' } } },
+      },
+    },
+    preHandler: [authMiddleware],
+    handler: usersController.deactivate,
+  });
+
+  app.post('/api/v1/users/me/avatar', {
+    schema: {
+      tags: ['Users'],
+      summary: 'Upload a profile avatar image (multipart/form-data, field: avatar)',
+      security: [{ BearerAuth: [] }],
+      consumes: ['multipart/form-data'],
+      response: {
+        200: {
+          type: 'object',
+          properties: { avatarUrl: { type: 'string' } },
+        },
+      },
+    },
+    preHandler: [authMiddleware],
+    handler: usersController.uploadAvatar,
   });
 }
 

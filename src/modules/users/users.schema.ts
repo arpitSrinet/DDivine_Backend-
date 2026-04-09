@@ -3,8 +3,11 @@
  * @description Zod schemas for user profile endpoints. Matches locked frontend contract (Section 8.2).
  *
  * Endpoints:
- *   GET   /api/v1/users/me   → response: UserProfileResponse
- *   PATCH /api/v1/users/me   → body: UpdateProfileSchema → response: UserProfileResponse
+ *   GET    /api/v1/users/me           → response: UserProfileResponse
+ *   PATCH  /api/v1/users/me           → body: UpdateProfileSchema → response: UserProfileResponse
+ *   PATCH  /api/v1/users/me/password  → body: ChangePasswordSchema → response: { message }
+ *   DELETE /api/v1/users/me           → response: { message }
+ *   POST   /api/v1/users/me/avatar    → multipart → response: { avatarUrl }
  *
  * @module src/modules/users/users.schema
  */
@@ -15,6 +18,7 @@ export const UserProfileResponseSchema = z.object({
   email: z.string().email(),
   firstName: z.string(),
   lastName: z.string(),
+  avatarUrl: z.string().optional(),
   phone: z.string().optional(),
   addressLine1: z.string().optional(),
   addressLine2: z.string().optional(),
@@ -34,5 +38,11 @@ export const UpdateProfileSchema = z.object({
   postcode: z.string().optional(),
 });
 
+export const ChangePasswordSchema = z.object({
+  currentPassword: z.string().min(1, 'Current password is required'),
+  newPassword: z.string().min(8, 'New password must be at least 8 characters'),
+});
+
 export type IUserProfileResponse = z.infer<typeof UserProfileResponseSchema>;
 export type IUpdateProfile = z.infer<typeof UpdateProfileSchema>;
+export type IChangePassword = z.infer<typeof ChangePasswordSchema>;

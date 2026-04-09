@@ -80,6 +80,7 @@ export const authService = {
         addressLine1: input.addressLine1,
         addressLine2: input.addressLine2,
         town: input.town,
+        county: input.county,
         postcode: input.postCode,
       },
       childData,
@@ -158,6 +159,7 @@ export const authService = {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
+        ...(user.avatarUrl && { avatarUrl: user.avatarUrl }),
         role: apiRole,
       },
     };

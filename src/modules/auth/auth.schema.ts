@@ -37,12 +37,13 @@ export const ParentSignupSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8, 'Password must be at least 8 characters'),
   fullName: z.string().min(1, 'Enter your full name'),
-  phoneNumber: z.string().optional(),
-  emergencyPhoneNumber: z.string().optional(),
-  addressLine1: z.string().optional(),
+  phoneNumber: z.string().min(1, 'Phone number is required'),
+  emergencyPhoneNumber: z.string().min(1, 'Emergency phone number is required'),
+  addressLine1: z.string().min(1, 'Address is required'),
   addressLine2: z.string().optional(),
-  town: z.string().optional(),
-  postCode: z.string().optional(),
+  town: z.string().min(1, 'Town is required'),
+  county: z.string().optional(),
+  postCode: z.string().min(1, 'Post code is required'),
   childProfile: SignupChildProfileSchema.nullable().optional(),
 });
 
@@ -53,11 +54,11 @@ export const SchoolSignupSchema = z.object({
   adminFullName: z.string().min(1, 'Enter your full name'),
   password: z.string().min(8, 'Password must be at least 8 characters'),
   schoolName: z.string().min(1, 'Enter school name'),
-  registrationNumber: z.string().optional(),
-  schoolType: z.string().optional(),
-  website: z.string().optional(),
-  schoolLogoFileName: z.string().optional(),
-  verificationDocumentFileName: z.string().optional(),
+  registrationNumber: z.string().min(1, 'Registration number is required'),
+  schoolType: z.string().min(1, 'School type is required'),
+  website: z.string().min(1, 'Website is required'),
+  schoolLogoFileName: z.string().min(1, 'School logo is required'),
+  verificationDocumentFileName: z.string().min(1, 'Verification document is required'),
 });
 
 // ─── Login ────────────────────────────────────────────────────────────────────
@@ -65,7 +66,7 @@ export const SchoolSignupSchema = z.object({
 export const LoginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
-  role: z.enum(['parent', 'school']),
+  role: z.enum(['parent', 'school', 'admin']),
 });
 
 // ─── Responses ────────────────────────────────────────────────────────────────
@@ -75,12 +76,13 @@ export const AuthUserResponseSchema = z.object({
   email: z.string().email(),
   firstName: z.string(),
   lastName: z.string(),
-  role: z.enum(['parent', 'school']),
+  avatarUrl: z.string().optional(),
+  role: z.enum(['parent', 'school', 'admin']),
 });
 
 export const AuthSessionResponseSchema = z.object({
   accessToken: z.string(),
-  role: z.enum(['parent', 'school']),
+  role: z.enum(['parent', 'school', 'admin']),
   user: AuthUserResponseSchema,
 });
 

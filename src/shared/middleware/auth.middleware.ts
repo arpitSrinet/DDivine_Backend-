@@ -22,18 +22,10 @@ declare module 'fastify' {
   }
 }
 
-export async function authMiddleware(
-  request: FastifyRequest,
-  _reply: FastifyReply,
-): Promise<void> {
-  const authHeader = request.headers.authorization;
-
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    throw new AppError('INVALID_CREDENTIALS', 'Missing or invalid authorization header.', 401);
-  }
-
-  const token = authHeader.slice(7);
-
+/**
+ * Shared token verification logic. Resolves the decoded user or throws an AppError.
+ */
+async function resolveTokenToUser(token: string): Promise<IAuthUser> {
   let payload: IAuthUser;
   try {
     const decoded = verifyToken(token);
@@ -52,5 +44,40 @@ export async function authMiddleware(
     throw new AppError('TOKEN_EXPIRED', 'Token has been revoked.', 401);
   }
 
-  request.user = payload;
+  return payload;
+}
+
+/**
+ * Hard auth guard — rejects the request with 401 if no valid Bearer token is present.
+ * Use on all routes that require authentication.
+ */
+export async function authMiddleware(
+  request: FastifyRequest,
+  _reply: FastifyReply,
+): Promise<void> {
+  const authHeader = request.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    throw new AppError('INVALID_CREDENTIALS', 'Missing or invalid authorization header.', 401);
+  }
+
+  request.user = await resolveTokenToUser(authHeader.slice(7));
+}
+
+/**
+ * Optional auth middleware — attaches `request.user` when a valid Bearer token is present,
+ * but allows the request through unauthenticated when no Authorization header is sent.
+ * Use on public routes where auth enriches the response but is not required (e.g. sessions list).
+ */
+export async function optionalAuthMiddleware(
+  request: FastifyRequest,
+  _reply: FastifyReply,
+): Promise<void> {
+  const authHeader = request.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return;
+  }
+
+  request.user = await resolveTokenToUser(authHeader.slice(7));
 }

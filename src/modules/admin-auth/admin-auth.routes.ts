@@ -42,6 +42,7 @@ async function adminAuthRoutes(app: FastifyInstance): Promise<void> {
                 email: { type: 'string' },
                 firstName: { type: 'string' },
                 lastName: { type: 'string' },
+                avatarUrl: { type: 'string' },
                 role: { type: 'string' },
               },
             },

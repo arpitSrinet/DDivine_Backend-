@@ -40,6 +40,7 @@ export const adminAuthService = {
         email: admin.email,
         firstName: admin.firstName,
         lastName: admin.lastName,
+        ...(admin.avatarUrl && { avatarUrl: admin.avatarUrl }),
         role: 'admin',
       },
     };

@@ -6,7 +6,6 @@
 import { AppError } from '@/shared/errors/AppError.js';
 import { assertAgeEligible } from '@/shared/domain/invariants/assertAgeEligible.js';
 import { assertNoOverlap } from '@/shared/domain/invariants/assertNoOverlap.js';
-import { CapacityExceededError } from '@/shared/domain/errors/CapacityExceededError.js';
 import { eventBus } from '@/shared/events/event-bus.js';
 import { EventType } from '@/shared/events/event-types.js';
 import { prisma } from '@/shared/infrastructure/prisma.js'; // only for withTransaction
@@ -70,22 +69,14 @@ export const bookingsService = {
 
     // --- Execute booking inside a serializable transaction ---
     // The FOR UPDATE lock inside createWithCapacityLock is the real capacity guard
-    let booking;
-    try {
-      booking = await withTransaction(prisma, async (tx) => {
-        return bookingsRepository.createWithCapacityLock(tx, {
-          userId,
-          sessionId: input.sessionId,
-          childId: input.childId,
-          price: session.price,
-        });
+    const booking = await withTransaction(prisma, async (tx) => {
+      return bookingsRepository.createWithCapacityLock(tx, {
+        userId,
+        sessionId: input.sessionId,
+        childId: input.childId,
+        price: session.price,
       });
-    } catch (error) {
-      if (error instanceof Error && error.message === 'CAPACITY_EXCEEDED') {
-        throw new CapacityExceededError('This session is fully booked.');
-      }
-      throw error;
-    }
+    });
 
     const response = mapToBookingResponse(booking);
 

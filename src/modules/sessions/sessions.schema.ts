@@ -15,7 +15,7 @@ export const SessionFilterSchema = z.object({
   date: z.string().date().optional(),
   location: z.string().optional(),
   page: z.coerce.number().int().positive().default(1),
-  pageSize: z.coerce.number().int().positive().max(100).default(20),
+  pageSize: z.coerce.number().int().positive().default(20).transform((v) => Math.min(v, 100)),
 });
 
 export const SessionIdParamSchema = z.object({

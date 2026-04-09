@@ -82,7 +82,7 @@ export const refundsService = {
       eventBus.emit(EventType.REFUND_ISSUED, {
         refundId: refund.id,
         paymentId: input.paymentId,
-        userId: '',
+        userId: payment.booking.userId,
       });
 
       logger.info({ refundId: refund.id, stripeRefundId: stripeRefund.id }, 'Refund completed');

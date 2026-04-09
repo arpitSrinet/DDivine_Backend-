@@ -42,6 +42,19 @@ async function errorHandler(
     return;
   }
 
+  // Fastify's built-in validation errors (FST_ERR_VALIDATION) carry a statusCode
+  // of 400 and should be surfaced as client errors, not masked as server errors.
+  const fastifyError = error as FastifyError;
+  if (fastifyError.statusCode && fastifyError.statusCode < 500) {
+    logger.warn({ err: error, requestId }, 'Validation error');
+    await reply.status(fastifyError.statusCode).send({
+      code: 'VALIDATION_ERROR',
+      message: fastifyError.message,
+      status: fastifyError.statusCode,
+    });
+    return;
+  }
+
   logger.error({ err: error, requestId }, 'Unhandled error');
 
   await reply.status(500).send({

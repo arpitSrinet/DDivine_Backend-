@@ -9,7 +9,14 @@ import { prisma } from '@/shared/infrastructure/prisma.js';
 
 export const refundsRepository = {
   async findPaymentById(paymentId: string) {
-    return prisma.payment.findUnique({ where: { id: paymentId } });
+    return prisma.payment.findUnique({
+      where: { id: paymentId },
+      include: {
+        booking: {
+          select: { userId: true },
+        },
+      },
+    });
   },
 
   async create(data: {

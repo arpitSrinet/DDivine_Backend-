@@ -479,18 +479,38 @@ Success: 200 → { accessToken: string, role: 'parent' | 'school', user: { id, e
 Errors:  401 INVALID_CREDENTIALS | 422 VALIDATION_ERROR | 429 RATE_LIMITED
 
 POST /auth/signup/parent
-Body:    { email, password, firstName, lastName, phone?, addressLine1?, addressLine2?, town?, county?, postcode? }
+Body:    {
+           email, password,
+           fullName,                  ← frontend sends combined name; backend splits on first space → firstName + lastName
+           phoneNumber?,              ← frontend field name; backend stores as phone
+           emergencyPhoneNumber?,
+           addressLine1?, addressLine2?, town?, county?,
+           postCode?,                 ← frontend field name; backend stores as postcode
+           childProfile?: {
+             childFullName, childDateOfBirth, childSchoolName,
+             firstAidPermission, gender, medicalNotes?
+           }
+         }
 Success: 201 → { message: string }
 Errors:  409 EMAIL_ALREADY_EXISTS | 422 VALIDATION_ERROR | 429 RATE_LIMITED
 
 POST /auth/signup/school
-Body:    { email, password, schoolName, contactFirstName, contactLastName, phone?, addressLine1?, addressLine2?, town?, county?, postcode? }
+Body:    {
+           adminEmail,                ← frontend field name; backend stores as email
+           adminFullName,             ← frontend field name; backend splits → firstName + lastName
+           password, schoolName,
+           registrationNumber?, schoolType?, website?,
+           schoolLogoFileName?, verificationDocumentFileName?
+         }
 Success: 201 → { message: string }
 Errors:  409 EMAIL_ALREADY_EXISTS | 422 VALIDATION_ERROR | 429 RATE_LIMITED
 
 POST /auth/logout
 Auth:    Bearer token required
 Success: 200 → { message: string }
+
+POST /auth/forgot-password
+NOTE: Deferred — OTP flow not yet implemented.
 ```
 
 ### 8.2 User Endpoints
@@ -570,6 +590,12 @@ GET /bookings/:bookingId
 Auth:    Bearer token required
 Success: 200 → Single booking object (same shape)
 Errors:  404 BOOKING_NOT_FOUND
+
+POST /bookings
+Auth:    Bearer token required
+Body:    { sessionId: string, childId?: string, idempotencyKey?: string }
+Success: 201 → Booking object (same shape as above, status: 'pending')
+Errors:  409 CAPACITY_EXCEEDED | 422 AGE_INELIGIBLE | 409 BOOKING_OVERLAP
 
 DELETE /bookings/:bookingId
 Auth:    Bearer token required

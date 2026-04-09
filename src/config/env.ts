@@ -20,11 +20,23 @@ const envSchema = z.object({
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
   RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().positive().default(60),
 
+  // Comma-separated list of allowed origins. Trailing slashes are ignored at runtime.
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
 
   // Stripe — optional at startup, required at runtime for Phase 5 endpoints
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
+
+  // Email / SMTP — optional at startup, required at runtime for Phase 6 email sending
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().positive().optional(),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  EMAIL_FROM: z.string().default('noreply@ddivine.co.uk'),
+
+  // File uploads — local disk storage
+  UPLOADS_DIR: z.string().default('./uploads'),
+  BASE_URL: z.string().default('http://localhost:3000'),
 });
 
 const parsed = envSchema.safeParse(process.env);

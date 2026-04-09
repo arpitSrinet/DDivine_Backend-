@@ -52,6 +52,20 @@ enum OtpType {
   PASSWORD_RESET
 }
 
+enum CalendarEventType {
+  TOURNAMENT
+  OPEN_DAY
+  CAMP
+  SCHOOL_VISIT
+  OTHER
+}
+
+enum ContactInquiryStatus {
+  UNREAD
+  READ
+  RESOLVED
+}
+
 // ─── User ─────────────────────────────────────────────────
 
 model User {
@@ -69,6 +83,7 @@ model User {
   town         String?
   county       String?
   postcode     String?
+  avatarUrl    String?
   // School-specific fields
   registrationNumber           String?
   schoolType                   String?
@@ -80,6 +95,7 @@ model User {
 
   children      Child[]
   bookings      Booking[]
+  eventBookings CalendarEventBooking[]
   notifications Notification[]
 
   @@index([email, role])
@@ -104,6 +120,8 @@ model Child {
   user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   emergencyContacts EmergencyContact[]
   bookings          Booking[]
+  eventBookings     CalendarEventBooking[]
+  performances      ChildPerformance[]
 
   @@index([userId])
 }
@@ -157,8 +175,9 @@ model Session {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  service  Service   @relation(fields: [serviceId], references: [id])
-  bookings Booking[]
+  service              Service              @relation(fields: [serviceId], references: [id])
+  bookings             Booking[]
+  performanceRecords ChildPerformance[]
 
   @@index([serviceId, date])
   @@index([date, isActive])
@@ -266,13 +285,16 @@ model Otp {
 // ─── League ───────────────────────────────────────────────
 
 model Team {
-  id        String   @id @default(cuid())
-  name      String
-  schoolId  String?
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(cuid())
+  name       String
+  schoolId   String?
+  schoolName String?
+  photoId    String?
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
+  photo       MediaAsset?      @relation("TeamPhoto", fields: [photoId], references: [id], onDelete: SetNull)
   homeMatches Match[]          @relation("HomeTeam")
   awayMatches Match[]          @relation("AwayTeam")
   standing    LeagueStanding?
@@ -285,12 +307,15 @@ model Match {
   homeScore  Int?
   awayScore  Int?
   date       DateTime
+  location   String?
+  photoId    String?
   status     MatchStatus @default(SCHEDULED)
   createdAt  DateTime    @default(now())
   updatedAt  DateTime    @updatedAt
 
-  homeTeam Team @relation("HomeTeam", fields: [homeTeamId], references: [id])
-  awayTeam Team @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  homeTeam Team        @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam Team        @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  photo    MediaAsset? @relation("MatchPhoto", fields: [photoId], references: [id], onDelete: SetNull)
 
   @@index([status, date])
 }
@@ -302,6 +327,8 @@ model LeagueStanding {
   wins          Int      @default(0)
   draws         Int      @default(0)
   losses        Int      @default(0)
+  goalsFor      Int      @default(0)
+  goalsAgainst  Int      @default(0)
   points        Int      @default(0)
   updatedAt     DateTime @updatedAt
 
@@ -358,4 +385,126 @@ model FaqItem {
   order    Int    @default(0)
 
   group FaqGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+}
+
+// ─── Media (admin library) ────────────────────────────────
+
+model MediaAsset {
+  id        String   @id @default(cuid())
+  name      String
+  url       String
+  size      Int
+  width     Int?
+  height    Int?
+  createdAt DateTime @default(now())
+
+  teamsWithPhoto Team[]             @relation("TeamPhoto")
+  matchesPhoto   Match[]            @relation("MatchPhoto")
+  bannerEvents   CalendarEvent[]
+  contentSlots   ContentMediaSlot[]
+}
+
+// ─── Public calendar events (marketing site) ─────────────
+
+model CalendarEvent {
+  id          String            @id @default(cuid())
+  title       String
+  description String?
+  type        CalendarEventType
+  date        DateTime
+  time        String
+  location    String
+  isPublic    Boolean           @default(false)
+  bannerId    String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  banner MediaAsset? @relation(fields: [bannerId], references: [id], onDelete: SetNull)
+  bookings CalendarEventBooking[]
+
+  @@index([date, isPublic])
+}
+
+model CalendarEventBooking {
+  id        String   @id @default(cuid())
+  eventId   String
+  userId    String
+  childId   String?
+  notes     String?
+  createdAt DateTime @default(now())
+
+  event CalendarEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  child Child?        @relation(fields: [childId], references: [id], onDelete: SetNull)
+
+  @@index([eventId])
+  @@index([userId, createdAt])
+  @@unique([eventId, userId, childId])
+}
+
+// ─── Contact form inquiries ───────────────────────────────
+
+model ContactInquiry {
+  id          String               @id @default(cuid())
+  name        String
+  email       String
+  phone       String?
+  message     String
+  status      ContactInquiryStatus @default(UNREAD)
+  submittedAt DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  @@index([status, submittedAt])
+}
+
+// ─── Child performance (admin-only records) ───────────────
+
+model ChildPerformance {
+  id               String   @id @default(cuid())
+  childId          String
+  sessionId        String
+  date             DateTime
+  goalsScored      Int      @default(0)
+  assists          Int      @default(0)
+  attendanceRate   Decimal  @db.Decimal(5, 2)
+  rating           Int?
+  coachNotes       String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  child   Child   @relation(fields: [childId], references: [id], onDelete: Cascade)
+  session Session @relation(fields: [sessionId], references: [id])
+
+  @@index([childId, date])
+  @@index([sessionId])
+}
+
+// ─── Site content (CMS) ───────────────────────────────────
+
+model ContentStat {
+  key    String @id
+  value  String
+  suffix String @default("")
+  label  String
+}
+
+model Testimonial {
+  id      String @id @default(cuid())
+  quote   String
+  speaker String
+  role    String
+  order   Int    @default(0)
+}
+
+model Partner {
+  id          String @id @default(cuid())
+  name        String
+  description String
+  type        String
+}
+
+model ContentMediaSlot {
+  slot    String      @id
+  mediaId String?
+  media   MediaAsset? @relation(fields: [mediaId], references: [id], onDelete: SetNull)
 }

@@ -47,6 +47,7 @@ const mockHash = vi.mocked(hashUtils);
 const mockToken = vi.mocked(tokenUtils);
 
 const baseUserFields = {
+  avatarUrl: null,
   registrationNumber: null,
   schoolType: null,
   website: null,
@@ -64,6 +65,11 @@ describe('authService', () => {
       email: 'parent@test.com',
       password: 'password123',
       fullName: 'John Doe',
+      phoneNumber: '07700000000',
+      emergencyPhoneNumber: '07711111111',
+      addressLine1: '1 Test Street',
+      town: 'London',
+      postCode: 'SW1A 1AA',
     };
 
     it('creates a parent account and returns a message', async () => {
@@ -115,7 +121,9 @@ describe('authService', () => {
         updatedAt: new Date(),
       });
 
-      await expect(authService.signupParent(validInput)).rejects.toThrow('EMAIL_ALREADY_EXISTS');
+      await expect(authService.signupParent(validInput)).rejects.toMatchObject({
+        code: 'EMAIL_ALREADY_EXISTS',
+      });
     });
   });
 
@@ -125,6 +133,11 @@ describe('authService', () => {
       adminFullName: 'Jane Smith',
       password: 'password123',
       schoolName: 'Test Academy',
+      registrationNumber: 'REG123',
+      schoolType: 'Primary',
+      website: 'https://testacademy.co.uk',
+      schoolLogoFileName: 'logo.png',
+      verificationDocumentFileName: 'verify.pdf',
     };
 
     it('creates a school account with schoolName mapped correctly', async () => {
@@ -231,7 +244,7 @@ describe('authService', () => {
 
       await expect(
         authService.login({ email: 'parent@test.com', password: 'wrong', role: 'parent' }),
-      ).rejects.toThrow('INVALID_CREDENTIALS');
+      ).rejects.toMatchObject({ code: 'INVALID_CREDENTIALS' });
     });
 
     it('throws INVALID_CREDENTIALS on wrong role', async () => {
@@ -239,7 +252,7 @@ describe('authService', () => {
 
       await expect(
         authService.login({ email: 'parent@test.com', password: 'pass', role: 'school' }),
-      ).rejects.toThrow('INVALID_CREDENTIALS');
+      ).rejects.toMatchObject({ code: 'INVALID_CREDENTIALS' });
     });
   });
 });

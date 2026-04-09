@@ -25,6 +25,6 @@ export function apiRoleToDbRole(apiRole: string): UserRole {
   return dbRole;
 }
 
-export function dbRoleToApiRole(dbRole: UserRole): 'parent' | 'school' {
-  return ROLE_DB_TO_API[dbRole] as 'parent' | 'school';
+export function dbRoleToApiRole(dbRole: UserRole): 'parent' | 'school' | 'admin' {
+  return ROLE_DB_TO_API[dbRole] as 'parent' | 'school' | 'admin';
 }

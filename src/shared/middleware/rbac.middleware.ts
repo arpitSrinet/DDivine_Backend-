@@ -20,7 +20,7 @@ export function requireRole(...roles: AllowedRole[]) {
 
     if (!roles.includes(request.user!.role)) {
       throw new AppError(
-        'INVALID_CREDENTIALS',
+        'FORBIDDEN',
         'You do not have permission to access this resource.',
         403,
       );

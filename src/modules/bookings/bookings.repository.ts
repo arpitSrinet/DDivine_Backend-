@@ -5,6 +5,7 @@
  */
 import type { Prisma, PrismaClient } from '@prisma/client';
 
+import { CapacityExceededError } from '@/shared/domain/errors/CapacityExceededError.js';
 import { prisma } from '@/shared/infrastructure/prisma.js';
 
 type TxClient = Omit<
@@ -75,7 +76,7 @@ export const bookingsRepository = {
     `;
 
     if (!lockedSession || lockedSession.currentCapacity >= lockedSession.maxCapacity) {
-      throw new Error('CAPACITY_EXCEEDED');
+      throw new CapacityExceededError('This session is fully booked.');
     }
 
     await tx.session.update({

@@ -1,12 +1,13 @@
 /**
  * @file sessions.routes.ts
- * @description Fastify route registration for sessions. Auth required.
+ * @description Fastify route registration for sessions. Auth is optional — unauthenticated
+ * visitors may browse sessions; a Bearer token enriches the request context when provided.
  * @module src/modules/sessions/sessions.routes
  */
 import type { FastifyInstance } from 'fastify';
 import fp from 'fastify-plugin';
 
-import { authMiddleware } from '@/shared/middleware/auth.middleware.js';
+import { optionalAuthMiddleware } from '@/shared/middleware/auth.middleware.js';
 import { validate } from '@/shared/middleware/validate.js';
 
 import { sessionsController } from './sessions.controller.js';
@@ -34,8 +35,7 @@ async function sessionsRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/v1/sessions', {
     schema: {
       tags: ['Sessions'],
-      summary: 'List sessions with optional filters',
-      security: [{ BearerAuth: [] }],
+      summary: 'List sessions with optional filters — auth optional (token enriches context when sent)',
       querystring: {
         type: 'object',
         properties: {
@@ -59,22 +59,21 @@ async function sessionsRoutes(app: FastifyInstance): Promise<void> {
         },
       },
     },
-    preHandler: [authMiddleware, validate({ query: SessionFilterSchema })],
+    preHandler: [optionalAuthMiddleware, validate({ query: SessionFilterSchema })],
     handler: sessionsController.getSessions,
   });
 
   app.get('/api/v1/sessions/:sessionId', {
     schema: {
       tags: ['Sessions'],
-      summary: 'Get session detail',
-      security: [{ BearerAuth: [] }],
+      summary: 'Get session detail — auth optional (token enriches context when sent)',
       params: {
         type: 'object',
         properties: { sessionId: { type: 'string' } },
       },
       response: { 200: sessionSchema },
     },
-    preHandler: [authMiddleware, validate({ params: SessionIdParamSchema })],
+    preHandler: [optionalAuthMiddleware, validate({ params: SessionIdParamSchema })],
     handler: sessionsController.getSessionById,
   });
 }

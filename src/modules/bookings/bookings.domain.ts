@@ -17,10 +17,11 @@ type BookingWithRelations = Prisma.BookingGetPayload<{
 }>;
 
 export function mapToBookingResponse(booking: BookingWithRelations): IBookingResponse {
+  const dateOnly = booking.session.date.toISOString().split('T')[0];
   return {
     id: booking.id,
     serviceName: booking.session.service.title,
-    date: booking.session.date.toISOString(),
+    date: dateOnly,
     time: booking.session.time,
     location: booking.session.location,
     status: BOOKING_STATUS_MAP[booking.status],

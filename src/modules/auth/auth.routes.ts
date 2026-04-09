@@ -23,7 +23,7 @@ async function authRoutes(app: FastifyInstance): Promise<void> {
       summary: 'Sign up as a parent',
       body: {
         type: 'object',
-        required: ['email', 'password', 'fullName'],
+        required: ['email', 'password', 'fullName', 'phoneNumber', 'emergencyPhoneNumber', 'addressLine1', 'town', 'postCode'],
         properties: {
           email: { type: 'string', format: 'email' },
           password: { type: 'string', minLength: 8 },
@@ -65,7 +65,7 @@ async function authRoutes(app: FastifyInstance): Promise<void> {
       summary: 'Sign up as a school',
       body: {
         type: 'object',
-        required: ['adminEmail', 'adminFullName', 'password', 'schoolName'],
+        required: ['adminEmail', 'adminFullName', 'password', 'schoolName', 'registrationNumber', 'schoolType', 'website', 'schoolLogoFileName', 'verificationDocumentFileName'],
         properties: {
           adminEmail: { type: 'string', format: 'email' },
           adminFullName: { type: 'string' },
@@ -99,7 +99,7 @@ async function authRoutes(app: FastifyInstance): Promise<void> {
         properties: {
           email: { type: 'string', format: 'email' },
           password: { type: 'string' },
-          role: { type: 'string', enum: ['parent', 'school'] },
+          role: { type: 'string', enum: ['parent', 'school', 'admin'] },
         },
       },
       response: {
@@ -107,7 +107,7 @@ async function authRoutes(app: FastifyInstance): Promise<void> {
           type: 'object',
           properties: {
             accessToken: { type: 'string' },
-            role: { type: 'string', enum: ['parent', 'school'] },
+            role: { type: 'string', enum: ['parent', 'school', 'admin'] },
             user: {
               type: 'object',
               properties: {
@@ -115,6 +115,7 @@ async function authRoutes(app: FastifyInstance): Promise<void> {
                 email: { type: 'string' },
                 firstName: { type: 'string' },
                 lastName: { type: 'string' },
+                avatarUrl: { type: 'string' },
                 role: { type: 'string' },
               },
             },

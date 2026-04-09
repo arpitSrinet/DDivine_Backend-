@@ -19,6 +19,7 @@ export const AdminUserResponseSchema = z.object({
   email: z.string().email(),
   firstName: z.string(),
   lastName: z.string(),
+  avatarUrl: z.string().optional(),
   role: z.literal('admin'),
 });
 

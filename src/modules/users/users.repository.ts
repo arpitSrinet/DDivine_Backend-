@@ -14,6 +14,7 @@ interface UpdateUserData {
   town?: string;
   county?: string;
   postcode?: string;
+  avatarUrl?: string;
 }
 
 export const usersRepository = {
@@ -21,7 +22,24 @@ export const usersRepository = {
     return prisma.user.findUnique({ where: { id } });
   },
 
+  async findPasswordHashById(id: string): Promise<string | null> {
+    const user = await prisma.user.findUnique({ where: { id }, select: { passwordHash: true } });
+    return user?.passwordHash ?? null;
+  },
+
   async updateById(id: string, data: UpdateUserData) {
     return prisma.user.update({ where: { id }, data });
+  },
+
+  async updatePasswordById(id: string, passwordHash: string): Promise<void> {
+    await prisma.user.update({ where: { id }, data: { passwordHash } });
+  },
+
+  async updateAvatarUrlById(id: string, avatarUrl: string) {
+    return prisma.user.update({ where: { id }, data: { avatarUrl } });
+  },
+
+  async deleteById(id: string): Promise<void> {
+    await prisma.user.delete({ where: { id } });
   },
 };

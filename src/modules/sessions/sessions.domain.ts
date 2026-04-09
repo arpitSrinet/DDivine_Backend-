@@ -12,11 +12,12 @@ type SessionWithService = Prisma.SessionGetPayload<{
 }>;
 
 export function mapToSessionResponse(session: SessionWithService): ISessionResponse {
+  const dateOnly = session.date.toISOString().split('T')[0];
   return {
     id: session.id,
     serviceId: session.serviceId,
     serviceName: session.service.title,
-    date: session.date.toISOString(),
+    date: dateOnly,
     time: session.time,
     location: session.location,
     ...(session.coachName && { coachName: session.coachName }),
