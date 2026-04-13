@@ -87,7 +87,16 @@ async function schoolsRoutes(app: FastifyInstance): Promise<void> {
               date: { type: 'string' },
               time: { type: 'string' },
               location: { type: 'string' },
-              status: { type: 'string', enum: ['confirmed', 'pending', 'cancelled'] },
+              status: {
+                type: 'string',
+                enum: [
+                  'pending_payment',
+                  'government_payment_pending',
+                  'confirmed',
+                  'refunded',
+                  'cancelled',
+                ],
+              },
               coachName: { type: 'string' },
               price: { type: 'number' },
             },

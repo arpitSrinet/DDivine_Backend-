@@ -38,6 +38,7 @@ import authRoutes from '@/modules/auth/auth.routes.js';
 import bookingsRoutes from '@/modules/bookings/bookings.routes.js';
 import childrenRoutes from '@/modules/children/children.routes.js';
 import contactRoutes from '@/modules/contact/contact.routes.js';
+import eventBookingsRoutes from '@/modules/event-bookings/event-bookings.routes.js';
 import invoicesRoutes from '@/modules/invoices/invoices.routes.js';
 import { emailQueue } from '@/modules/jobs/queues/email.queue.js';
 import { invoiceQueue } from '@/modules/jobs/queues/invoice.queue.js';
@@ -140,6 +141,7 @@ export async function buildApp() {
         { name: 'Contact', description: 'Public contact form' },
         { name: 'Knowledge', description: 'Public content — case studies, free activities, FAQs' },
         { name: 'Events', description: 'Public marketing events and user event bookings' },
+        { name: 'Event Bookings', description: 'Multi-step event booking flow, checkout, and receipts' },
         { name: 'Schools', description: 'School profile management' },
         { name: 'Admin', description: 'Admin system — requires ADMIN role' },
       ],
@@ -191,6 +193,7 @@ export async function buildApp() {
   await app.register(childrenRoutes);
   await app.register(servicesRoutes);
   await app.register(sessionsRoutes);
+  await app.register(eventBookingsRoutes);
   await app.register(bookingsRoutes);
   await app.register(paymentsRoutes);
   await app.register(invoicesRoutes);

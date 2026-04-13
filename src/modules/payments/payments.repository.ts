@@ -3,7 +3,7 @@
  * @description Data access layer for payments.
  * @module src/modules/payments/payments.repository
  */
-import type { PaymentStatus, Prisma } from '@prisma/client';
+import type { BookingStatus, PaymentStatus, Prisma } from '@prisma/client';
 
 import { prisma } from '@/shared/infrastructure/prisma.js';
 
@@ -56,6 +56,13 @@ export const paymentsRepository = {
     return prisma.payment.update({
       where: { stripePaymentIntentId },
       data: { status },
+    });
+  },
+
+  async updateBookingStatus(bookingId: string, status: BookingStatus) {
+    return prisma.booking.update({
+      where: { id: bookingId },
+      data: { status, ...(status === 'CANCELLED' ? { cancelledAt: new Date() } : {}) },
     });
   },
 };

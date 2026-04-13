@@ -40,7 +40,12 @@ export const refundsRepository = {
   async updatePaymentStatus(paymentId: string) {
     return prisma.payment.update({
       where: { id: paymentId },
-      data: { status: 'REFUNDED' },
+      data: {
+        status: 'REFUNDED',
+        booking: {
+          update: { status: 'REFUNDED' },
+        },
+      },
     });
   },
 

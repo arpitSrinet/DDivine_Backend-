@@ -3,6 +3,7 @@
  * @description Prisma interactive transaction helper with automatic retry on serialization failures.
  * @module src/shared/utils/transaction
  */
+import { Prisma } from '@prisma/client';
 import type { PrismaClient } from '@prisma/client';
 
 import { logger } from '@/shared/infrastructure/logger.js';
@@ -26,8 +27,11 @@ export async function withTransaction<T>(
     } catch (error) {
       const isSerializationFailure =
         error instanceof Error && error.message.includes('could not serialize');
+      const isWriteConflictOrDeadlock =
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2034';
 
-      if (isSerializationFailure && attempt < retries) {
+      if ((isSerializationFailure || isWriteConflictOrDeadlock) && attempt < retries) {
         logger.warn(
           { attempt, maxRetries: retries },
           'Transaction serialization conflict, retrying',

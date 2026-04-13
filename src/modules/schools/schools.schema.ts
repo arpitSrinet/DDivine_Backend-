@@ -45,7 +45,13 @@ export const SchoolBookingResponseSchema = z.object({
   date: z.string(),
   time: z.string(),
   location: z.string(),
-  status: z.enum(['confirmed', 'pending', 'cancelled']),
+  status: z.enum([
+    'pending_payment',
+    'government_payment_pending',
+    'confirmed',
+    'refunded',
+    'cancelled',
+  ]),
   coachName: z.string().optional(),
   price: z.number().nonnegative().optional(),
 });

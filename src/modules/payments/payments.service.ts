@@ -27,8 +27,12 @@ export const paymentsService = {
       throw new AppError('BOOKING_NOT_FOUND', 'Booking not found.', 404);
     }
 
-    if (booking.status === 'CANCELLED') {
-      throw new AppError('BOOKING_ALREADY_CANCELLED', 'Cannot pay for a cancelled booking.', 409);
+    if (booking.status === 'CANCELLED' || booking.status === 'REFUNDED') {
+      throw new AppError(
+        'BOOKING_ALREADY_CANCELLED',
+        'Cannot create a payment intent for a cancelled or refunded booking.',
+        409,
+      );
     }
 
     // Idempotency — return existing payment intent if already created for this booking
@@ -100,6 +104,7 @@ export const paymentsService = {
         if (payment.status === 'PAID') return; // idempotency — already processed
 
         await paymentsRepository.updateStatusByStripeIntentId(intent.id, 'PAID');
+        await paymentsRepository.updateBookingStatus(payment.bookingId, 'CONFIRMED');
 
         eventBus.emit(EventType.PAYMENT_SUCCEEDED, {
           paymentId: payment.id,

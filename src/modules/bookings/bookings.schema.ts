@@ -9,18 +9,27 @@
  *   POST   /api/v1/bookings              → body: CreateBookingSchema → response: BookingResponse
  *
  * BookingStatus enum map (Prisma → API):
- *   PENDING   → 'pending'
- *   CONFIRMED → 'confirmed'
- *   CANCELLED → 'cancelled'
+ *   PENDING                    → 'pending_payment' (legacy rows)
+ *   PENDING_PAYMENT            → 'pending_payment'
+ *   GOVERNMENT_PAYMENT_PENDING → 'government_payment_pending'
+ *   CONFIRMED                  → 'confirmed'
+ *   REFUNDED                   → 'refunded'
+ *   CANCELLED                  → 'cancelled'
  *
  * @module src/modules/bookings/bookings.schema
  */
 import { z } from 'zod';
 import type { BookingStatus } from '@prisma/client';
 
-export const BOOKING_STATUS_MAP: Record<BookingStatus, 'pending' | 'confirmed' | 'cancelled'> = {
-  PENDING: 'pending',
+export const BOOKING_STATUS_MAP: Record<
+  BookingStatus,
+  'pending_payment' | 'government_payment_pending' | 'confirmed' | 'refunded' | 'cancelled'
+> = {
+  PENDING: 'pending_payment',
+  PENDING_PAYMENT: 'pending_payment',
+  GOVERNMENT_PAYMENT_PENDING: 'government_payment_pending',
   CONFIRMED: 'confirmed',
+  REFUNDED: 'refunded',
   CANCELLED: 'cancelled',
 };
 
@@ -36,13 +45,50 @@ export const CreateBookingSchema = z.object({
 
 export const BookingResponseSchema = z.object({
   id: z.string(),
+  bookingType: z.enum(['session', 'event']).optional(),
+  bookingReference: z.string().optional(),
   serviceName: z.string(),
   date: z.string(),
   time: z.string(),
   location: z.string(),
-  status: z.enum(['confirmed', 'pending', 'cancelled']),
+  status: z.enum([
+    'pending_payment',
+    'government_payment_pending',
+    'confirmed',
+    'refunded',
+    'cancelled',
+  ]),
   coachName: z.string().optional(),
   price: z.number().nonnegative().optional(),
+  attendee: z
+    .object({
+      childId: z.string().nullable().optional(),
+      childName: z.string().optional(),
+    })
+    .optional(),
+  contact: z
+    .object({
+      fullName: z.string().optional(),
+      email: z.string().optional(),
+      phone: z.string().optional(),
+    })
+    .optional(),
+  payment: z
+    .object({
+      method: z.string().optional(),
+      currency: z.string().optional(),
+      subtotal: z.number().optional(),
+      addonsTotal: z.number().optional(),
+      discountTotal: z.number().optional(),
+      serviceFee: z.number().optional(),
+      totalPaid: z.number().optional(),
+    })
+    .optional(),
+  receipt: z
+    .object({
+      downloadUrl: z.string().optional(),
+    })
+    .optional(),
 });
 
 export type IBookingIdParam = z.infer<typeof BookingIdParamSchema>;

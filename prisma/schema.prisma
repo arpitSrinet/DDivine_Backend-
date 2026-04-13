@@ -17,7 +17,10 @@ enum UserRole {
 
 enum BookingStatus {
   PENDING
+  PENDING_PAYMENT
+  GOVERNMENT_PAYMENT_PENDING
   CONFIRMED
+  REFUNDED
   CANCELLED
 }
 
@@ -26,6 +29,22 @@ enum PaymentStatus {
   PAID
   REFUNDED
   FAILED
+}
+
+enum EventBookingStatus {
+  DRAFT
+  ATTENDEE_COMPLETED
+  CONTACT_COMPLETED
+  PAYMENT_SELECTED
+  CONFIRMED
+  CANCELLED
+  EXPIRED
+}
+
+enum EventPaymentMethod {
+  STRIPE
+  TAX_FREE_CHILDCARE
+  CARD
 }
 
 enum RefundStatus {
@@ -96,6 +115,7 @@ model User {
   children      Child[]
   bookings      Booking[]
   eventBookings CalendarEventBooking[]
+  eventBookingIntents EventBookingIntent[]
   notifications Notification[]
 
   @@index([email, role])
@@ -121,6 +141,7 @@ model Child {
   emergencyContacts EmergencyContact[]
   bookings          Booking[]
   eventBookings     CalendarEventBooking[]
+  eventBookingIntents EventBookingIntent[]
   performances      ChildPerformance[]
 
   @@index([userId])
@@ -414,13 +435,28 @@ model CalendarEvent {
   date        DateTime
   time        String
   location    String
+  category    String?
+  startDate   DateTime?
+  endDate     DateTime?
+  startTime   String?
+  endTime     String?
+  minAgeYears     Int?
+  maxAgeYears     Int?
+  maxCapacity     Int?
+  currentCapacity Int               @default(0)
+  currency        String            @default("GBP")
+  subtotal    Decimal           @default(0) @db.Decimal(10, 2)
+  serviceFee  Decimal           @default(0) @db.Decimal(10, 2)
+  requirements Json?
+  addons      Json?
   isPublic    Boolean           @default(false)
   bannerId    String?
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
 
-  banner MediaAsset? @relation(fields: [bannerId], references: [id], onDelete: SetNull)
+  banner   MediaAsset?          @relation(fields: [bannerId], references: [id], onDelete: SetNull)
   bookings CalendarEventBooking[]
+  intents  EventBookingIntent[]
 
   @@index([date, isPublic])
 }
@@ -431,15 +467,73 @@ model CalendarEventBooking {
   userId    String
   childId   String?
   notes     String?
+  intentId  String?  @unique
+  status    BookingStatus @default(CONFIRMED)
+  bookingReference String? @unique
+  medicalNotes String?
+  fullName  String?
+  email     String?
+  phone     String?
+  paymentMethod EventPaymentMethod?
+  taxFreeChildcareRef String?
+  stripeCheckoutSessionId String? @unique
+  stripePaymentIntentId String? @unique
+  currency  String   @default("GBP")
+  subtotal  Decimal  @default(0) @db.Decimal(10, 2)
+  addonsTotal Decimal @default(0) @db.Decimal(10, 2)
+  discountTotal Decimal @default(0) @db.Decimal(10, 2)
+  serviceFee Decimal @default(0) @db.Decimal(10, 2)
+  totalPaid Decimal @default(0) @db.Decimal(10, 2)
+  receiptUrl String?
+  cancelledAt DateTime?
+  updatedAt DateTime @updatedAt
   createdAt DateTime @default(now())
 
-  event CalendarEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  user  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  child Child?        @relation(fields: [childId], references: [id], onDelete: SetNull)
+  event  CalendarEvent      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user   User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  child  Child?             @relation(fields: [childId], references: [id], onDelete: SetNull)
+  intent EventBookingIntent? @relation(fields: [intentId], references: [id], onDelete: SetNull)
 
   @@index([eventId])
   @@index([userId, createdAt])
   @@unique([eventId, userId, childId])
+}
+
+model EventBookingIntent {
+  id        String             @id @default(cuid())
+  eventId    String
+  userId     String
+  childId    String?
+  status     EventBookingStatus @default(DRAFT)
+  currentStep String           @default("attendee")
+  expiresAt  DateTime
+  medicalNotes String?
+  addons     Json?
+  fullName   String?
+  email      String?
+  phone      String?
+  paymentMethod EventPaymentMethod?
+  paymentProvider String?
+  taxFreeChildcareRef String?
+  stripeCheckoutSessionId String? @unique
+  stripePaymentIntentId String? @unique
+  stripeCheckoutUrl String?
+  currency  String             @default("GBP")
+  subtotal  Decimal            @default(0) @db.Decimal(10, 2)
+  addonsTotal Decimal          @default(0) @db.Decimal(10, 2)
+  discountTotal Decimal        @default(0) @db.Decimal(10, 2)
+  serviceFee Decimal           @default(0) @db.Decimal(10, 2)
+  total     Decimal            @default(0) @db.Decimal(10, 2)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  event   CalendarEvent        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user    User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  child   Child?               @relation(fields: [childId], references: [id], onDelete: SetNull)
+  booking CalendarEventBooking?
+
+  @@index([userId, createdAt])
+  @@index([eventId, expiresAt])
 }
 
 // ─── Contact form inquiries ───────────────────────────────

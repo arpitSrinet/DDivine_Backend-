@@ -21,8 +21,11 @@ const EVENT_TYPE_MAP: Record<string, string> = {
 };
 
 const BOOKING_STATUS_MAP: Record<string, string> = {
-  PENDING: 'pending',
+  PENDING: 'pending_payment',
+  PENDING_PAYMENT: 'pending_payment',
+  GOVERNMENT_PAYMENT_PENDING: 'government_payment_pending',
   CONFIRMED: 'confirmed',
+  REFUNDED: 'refunded',
   CANCELLED: 'cancelled',
 };
 

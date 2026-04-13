@@ -12,22 +12,40 @@ import { prisma } from '@/shared/infrastructure/prisma.js'; // only for withTran
 import { redis } from '@/shared/infrastructure/redis.js';
 import { withTransaction } from '@/shared/utils/transaction.js';
 
-import { mapToBookingResponse } from './bookings.domain.js';
+import { mapEventBookingToBookingResponse, mapToBookingResponse } from './bookings.domain.js';
 import { bookingsRepository } from './bookings.repository.js';
 import type { IBookingResponse, ICreateBooking } from './bookings.schema.js';
 
 export const bookingsService = {
   async getMyBookings(userId: string): Promise<IBookingResponse[]> {
-    const bookings = await bookingsRepository.findAllByUserId(userId);
-    return bookings.map(mapToBookingResponse);
+    const [sessionBookings, eventBookings] = await Promise.all([
+      bookingsRepository.findAllByUserId(userId),
+      bookingsRepository.findAllEventBookingsByUserId(userId),
+    ]);
+    const merged = [
+      ...sessionBookings.map((booking) => ({
+        createdAt: booking.createdAt,
+        response: mapToBookingResponse(booking),
+      })),
+      ...eventBookings.map((booking) => ({
+        createdAt: booking.createdAt,
+        response: mapEventBookingToBookingResponse(booking),
+      })),
+    ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    return merged.map((item) => item.response);
   },
 
   async getBookingById(userId: string, bookingId: string): Promise<IBookingResponse> {
     const booking = await bookingsRepository.findByIdAndUserId(bookingId, userId);
-    if (!booking) {
+    if (booking) {
+      return mapToBookingResponse(booking);
+    }
+
+    const eventBooking = await bookingsRepository.findEventBookingByIdAndUserId(bookingId, userId);
+    if (!eventBooking) {
       throw new AppError('BOOKING_NOT_FOUND', 'Booking not found.', 404);
     }
-    return mapToBookingResponse(booking);
+    return mapEventBookingToBookingResponse(eventBooking, { includeDetail: true });
   },
 
   async createBooking(userId: string, input: ICreateBooking): Promise<IBookingResponse> {
@@ -104,11 +122,25 @@ export const bookingsService = {
     const booking = await bookingsRepository.findByIdAndUserId(bookingId, userId);
 
     if (!booking) {
-      throw new AppError('BOOKING_NOT_FOUND', 'Booking not found.', 404);
+      const eventBooking = await bookingsRepository.findEventBookingByIdAndUserId(bookingId, userId);
+      if (!eventBooking) {
+        throw new AppError('BOOKING_NOT_FOUND', 'Booking not found.', 404);
+      }
+      if (eventBooking.status === 'CANCELLED') {
+        throw new AppError('BOOKING_ALREADY_CANCELLED', 'Booking is already cancelled.', 409);
+      }
+      if (eventBooking.status === 'REFUNDED') {
+        throw new AppError('VALIDATION_ERROR', 'Refunded bookings cannot be cancelled.', 409);
+      }
+      await bookingsRepository.cancelEventBookingById(bookingId);
+      return;
     }
 
     if (booking.status === 'CANCELLED') {
       throw new AppError('BOOKING_ALREADY_CANCELLED', 'Booking is already cancelled.', 409);
+    }
+    if (booking.status === 'REFUNDED') {
+      throw new AppError('VALIDATION_ERROR', 'Refunded bookings cannot be cancelled.', 409);
     }
 
     await withTransaction(prisma, async (tx) => {

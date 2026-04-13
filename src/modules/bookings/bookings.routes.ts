@@ -16,13 +16,57 @@ const bookingResponseSchema = {
   type: 'object',
   properties: {
     id: { type: 'string' },
+    bookingType: { type: 'string', enum: ['session', 'event'] },
+    bookingReference: { type: 'string' },
     serviceName: { type: 'string' },
     date: { type: 'string' },
     time: { type: 'string' },
     location: { type: 'string' },
-    status: { type: 'string', enum: ['confirmed', 'pending', 'cancelled'] },
+    status: {
+      type: 'string',
+      enum: [
+        'pending_payment',
+        'government_payment_pending',
+        'confirmed',
+        'refunded',
+        'cancelled',
+      ],
+    },
     coachName: { type: 'string' },
     price: { type: 'number' },
+    attendee: {
+      type: 'object',
+      properties: {
+        childId: { type: 'string' },
+        childName: { type: 'string' },
+      },
+    },
+    contact: {
+      type: 'object',
+      properties: {
+        fullName: { type: 'string' },
+        email: { type: 'string' },
+        phone: { type: 'string' },
+      },
+    },
+    payment: {
+      type: 'object',
+      properties: {
+        method: { type: 'string' },
+        currency: { type: 'string' },
+        subtotal: { type: 'number' },
+        addonsTotal: { type: 'number' },
+        discountTotal: { type: 'number' },
+        serviceFee: { type: 'number' },
+        totalPaid: { type: 'number' },
+      },
+    },
+    receipt: {
+      type: 'object',
+      properties: {
+        downloadUrl: { type: 'string' },
+      },
+    },
   },
 };
 

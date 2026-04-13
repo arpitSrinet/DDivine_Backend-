@@ -18,7 +18,14 @@ const adminGuard = [authMiddleware, requireRole('ADMIN')];
 
 const BookingIdParamSchema = z.object({ bookingId: z.string().min(1) });
 const UpdateBookingSchema = z.object({
-  status: z.enum(['PENDING', 'CONFIRMED', 'CANCELLED']),
+  status: z.enum([
+    'PENDING',
+    'PENDING_PAYMENT',
+    'GOVERNMENT_PAYMENT_PENDING',
+    'CONFIRMED',
+    'REFUNDED',
+    'CANCELLED',
+  ]),
 });
 
 const bookingSchema = {
@@ -34,7 +41,16 @@ const bookingSchema = {
     date: { type: 'string' },
     time: { type: 'string' },
     location: { type: 'string' },
-    status: { type: 'string', enum: ['confirmed', 'pending', 'cancelled'] },
+    status: {
+      type: 'string',
+      enum: [
+        'pending_payment',
+        'government_payment_pending',
+        'confirmed',
+        'refunded',
+        'cancelled',
+      ],
+    },
     pricePence: { type: 'integer' },
     createdAt: { type: 'string' },
   },
@@ -49,7 +65,17 @@ async function adminBookingsRoutes(app: FastifyInstance): Promise<void> {
       querystring: {
         type: 'object',
         properties: {
-          status: { type: 'string', enum: ['PENDING', 'CONFIRMED', 'CANCELLED'] },
+          status: {
+            type: 'string',
+            enum: [
+              'PENDING',
+              'PENDING_PAYMENT',
+              'GOVERNMENT_PAYMENT_PENDING',
+              'CONFIRMED',
+              'REFUNDED',
+              'CANCELLED',
+            ],
+          },
           userId: { type: 'string' },
           page: { type: 'integer', default: 1 },
           pageSize: { type: 'integer', default: 20 },
@@ -78,7 +104,15 @@ async function adminBookingsRoutes(app: FastifyInstance): Promise<void> {
       const skip = (page - 1) * pageSize;
 
       const where = {
-        ...(status && { status: status as 'PENDING' | 'CONFIRMED' | 'CANCELLED' }),
+        ...(status && {
+          status: status as
+            | 'PENDING'
+            | 'PENDING_PAYMENT'
+            | 'GOVERNMENT_PAYMENT_PENDING'
+            | 'CONFIRMED'
+            | 'REFUNDED'
+            | 'CANCELLED',
+        }),
         ...(userId && { userId }),
       };
 
@@ -167,7 +201,19 @@ async function adminBookingsRoutes(app: FastifyInstance): Promise<void> {
       body: {
         type: 'object',
         required: ['status'],
-        properties: { status: { type: 'string', enum: ['PENDING', 'CONFIRMED', 'CANCELLED'] } },
+        properties: {
+          status: {
+            type: 'string',
+            enum: [
+              'PENDING',
+              'PENDING_PAYMENT',
+              'GOVERNMENT_PAYMENT_PENDING',
+              'CONFIRMED',
+              'REFUNDED',
+              'CANCELLED',
+            ],
+          },
+        },
       },
       response: { 200: bookingSchema },
     },
@@ -176,7 +222,18 @@ async function adminBookingsRoutes(app: FastifyInstance): Promise<void> {
       validate({ params: BookingIdParamSchema, body: UpdateBookingSchema }),
     ],
     handler: async (
-      request: FastifyRequest<{ Params: { bookingId: string }; Body: { status: 'PENDING' | 'CONFIRMED' | 'CANCELLED' } }>,
+      request: FastifyRequest<{
+        Params: { bookingId: string };
+        Body: {
+          status:
+            | 'PENDING'
+            | 'PENDING_PAYMENT'
+            | 'GOVERNMENT_PAYMENT_PENDING'
+            | 'CONFIRMED'
+            | 'REFUNDED'
+            | 'CANCELLED';
+        };
+      }>,
       reply: FastifyReply,
     ) => {
       const existing = await prisma.booking.findUnique({ where: { id: request.params.bookingId } });

@@ -19,6 +19,13 @@ const bookingInclude = {
   },
 } satisfies Prisma.BookingInclude;
 
+const eventBookingInclude = {
+  event: true,
+  child: {
+    select: { firstName: true, lastName: true },
+  },
+} satisfies Prisma.CalendarEventBookingInclude;
+
 export const bookingsRepository = {
   async findSessionById(sessionId: string) {
     return prisma.session.findFirst({
@@ -40,6 +47,14 @@ export const bookingsRepository = {
     });
   },
 
+  async findAllEventBookingsByUserId(userId: string) {
+    return prisma.calendarEventBooking.findMany({
+      where: { userId },
+      include: eventBookingInclude,
+      orderBy: { createdAt: 'desc' },
+    });
+  },
+
   async findByIdAndUserId(bookingId: string, userId: string) {
     return prisma.booking.findFirst({
       where: { id: bookingId, userId },
@@ -47,9 +62,16 @@ export const bookingsRepository = {
     });
   },
 
+  async findEventBookingByIdAndUserId(bookingId: string, userId: string) {
+    return prisma.calendarEventBooking.findFirst({
+      where: { id: bookingId, userId },
+      include: eventBookingInclude,
+    });
+  },
+
   async findActiveBookingsForChild(childId: string) {
     return prisma.booking.findMany({
-      where: { childId, status: { not: 'CANCELLED' } },
+      where: { childId, status: { notIn: ['CANCELLED', 'REFUNDED'] } },
       include: {
         session: { select: { date: true, time: true } },
       },
@@ -90,7 +112,7 @@ export const bookingsRepository = {
         sessionId: data.sessionId,
         childId: data.childId,
         price: data.price,
-        status: 'PENDING',
+        status: 'PENDING_PAYMENT',
       },
       include: bookingInclude,
     });
@@ -113,5 +135,13 @@ export const bookingsRepository = {
       }),
     ]);
     return booking;
+  },
+
+  async cancelEventBookingById(bookingId: string) {
+    return prisma.calendarEventBooking.update({
+      where: { id: bookingId },
+      data: { status: 'CANCELLED', cancelledAt: new Date() },
+      include: eventBookingInclude,
+    });
   },
 };

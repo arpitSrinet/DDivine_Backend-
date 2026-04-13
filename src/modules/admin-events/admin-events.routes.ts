@@ -40,6 +40,35 @@ const CreateEventSchema = z.object({
   date: z.string().min(1),
   time: z.string().regex(/^\d{2}:\d{2}$/),
   location: z.string().min(1),
+  category: z.string().optional(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  startTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  endTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  minAgeYears: z.number().int().nonnegative().optional(),
+  maxAgeYears: z.number().int().nonnegative().optional(),
+  maxCapacity: z.number().int().positive().optional(),
+  currency: z.string().default('GBP').optional(),
+  subtotal: z.number().nonnegative().optional(),
+  serviceFee: z.number().nonnegative().optional(),
+  requirements: z
+    .array(
+      z.object({
+        heading: z.string().min(1),
+        items: z.array(z.string().min(1)),
+      }),
+    )
+    .optional(),
+  addons: z
+    .array(
+      z.object({
+        code: z.string().min(1),
+        label: z.string().min(1),
+        price: z.number().nonnegative(),
+        defaultSelected: z.boolean().optional(),
+      }),
+    )
+    .optional(),
   description: z.string().optional(),
   isPublic: z.boolean().optional(),
   bannerId: z.string().optional(),
@@ -56,23 +85,55 @@ function mapEvent(e: {
   title: string;
   description: string | null;
   type: CalendarEventType;
+  category: string | null;
   date: Date;
   time: string;
   location: string;
+  startDate: Date | null;
+  endDate: Date | null;
+  startTime: string | null;
+  endTime: string | null;
+  minAgeYears: number | null;
+  maxAgeYears: number | null;
+  maxCapacity: number | null;
+  currentCapacity: number;
+  currency: string;
+  subtotal: Prisma.Decimal;
+  serviceFee: Prisma.Decimal;
+  requirements: Prisma.JsonValue | null;
+  addons: Prisma.JsonValue | null;
   isPublic: boolean;
   bannerId: string | null;
   createdAt: Date;
   updatedAt: Date;
   banner: { id: string; url: string } | null;
 }) {
+  const availableSpots =
+    e.maxCapacity !== null ? Math.max(0, e.maxCapacity - e.currentCapacity) : null;
   return {
     id: e.id,
     title: e.title,
     description: e.description ?? undefined,
     type: TYPE_TO_API[e.type],
+    category: e.category ?? undefined,
     date: e.date.toISOString().split('T')[0],
     time: e.time,
+    startDate: (e.startDate ?? e.date).toISOString().split('T')[0],
+    endDate: (e.endDate ?? e.startDate ?? e.date).toISOString().split('T')[0],
+    startTime: e.startTime ?? e.time,
+    endTime: e.endTime ?? undefined,
     location: e.location,
+    minAgeYears: e.minAgeYears ?? undefined,
+    maxAgeYears: e.maxAgeYears ?? undefined,
+    maxCapacity: e.maxCapacity ?? undefined,
+    currentCapacity: e.currentCapacity,
+    availableSpots: availableSpots ?? undefined,
+    isSoldOut: availableSpots !== null ? availableSpots === 0 : false,
+    currency: e.currency,
+    subtotal: e.subtotal.toNumber(),
+    serviceFee: e.serviceFee.toNumber(),
+    requirements: e.requirements ?? undefined,
+    addons: e.addons ?? undefined,
     isPublic: e.isPublic,
     bannerId: e.bannerId ?? undefined,
     bannerUrl: e.banner?.url,
@@ -142,7 +203,29 @@ async function adminEventsRoutes(app: FastifyInstance): Promise<void> {
       request: FastifyRequest<{ Body: z.infer<typeof CreateEventSchema> }>,
       reply: FastifyReply,
     ) => {
-      const { title, type, date, time, location, description, isPublic, bannerId } = request.body;
+      const {
+        title,
+        type,
+        date,
+        time,
+        location,
+        category,
+        startDate,
+        endDate,
+        startTime,
+        endTime,
+        minAgeYears,
+        maxAgeYears,
+        maxCapacity,
+        currency,
+        subtotal,
+        serviceFee,
+        requirements,
+        addons,
+        description,
+        isPublic,
+        bannerId,
+      } = request.body;
       if (bannerId) {
         const m = await prisma.mediaAsset.findUnique({ where: { id: bannerId } });
         if (!m) throw new AppError('ACCOUNT_NOT_FOUND', 'Banner media not found.', 404);
@@ -154,6 +237,19 @@ async function adminEventsRoutes(app: FastifyInstance): Promise<void> {
           date: new Date(date),
           time,
           location,
+          category,
+          startDate: startDate ? new Date(startDate) : new Date(date),
+          endDate: endDate ? new Date(endDate) : startDate ? new Date(startDate) : new Date(date),
+          startTime: startTime ?? time,
+          endTime,
+          minAgeYears,
+          maxAgeYears,
+          maxCapacity,
+          currency: currency ?? 'GBP',
+          subtotal: subtotal ?? 0,
+          serviceFee: serviceFee ?? 0,
+          requirements: requirements as Prisma.InputJsonValue | undefined,
+          addons: addons as Prisma.InputJsonValue | undefined,
           description,
           isPublic: isPublic ?? false,
           bannerId,
@@ -185,6 +281,19 @@ async function adminEventsRoutes(app: FastifyInstance): Promise<void> {
       if (b.date !== undefined) data.date = new Date(b.date);
       if (b.time !== undefined) data.time = b.time;
       if (b.location !== undefined) data.location = b.location;
+      if (b.category !== undefined) data.category = b.category;
+      if (b.startDate !== undefined) data.startDate = new Date(b.startDate);
+      if (b.endDate !== undefined) data.endDate = new Date(b.endDate);
+      if (b.startTime !== undefined) data.startTime = b.startTime;
+      if (b.endTime !== undefined) data.endTime = b.endTime;
+      if (b.minAgeYears !== undefined) data.minAgeYears = b.minAgeYears;
+      if (b.maxAgeYears !== undefined) data.maxAgeYears = b.maxAgeYears;
+      if (b.maxCapacity !== undefined) data.maxCapacity = b.maxCapacity;
+      if (b.currency !== undefined) data.currency = b.currency;
+      if (b.subtotal !== undefined) data.subtotal = b.subtotal;
+      if (b.serviceFee !== undefined) data.serviceFee = b.serviceFee;
+      if (b.requirements !== undefined) data.requirements = b.requirements as Prisma.InputJsonValue;
+      if (b.addons !== undefined) data.addons = b.addons as Prisma.InputJsonValue;
       if (b.isPublic !== undefined) data.isPublic = b.isPublic;
       if (b.bannerId !== undefined) {
         data.banner = b.bannerId ? { connect: { id: b.bannerId } } : { disconnect: true };
