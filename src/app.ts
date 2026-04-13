@@ -114,7 +114,7 @@ export async function buildApp() {
         description: 'Backend API for DDivine Training — sports coaching and wraparound childcare platform.',
         version: '1.0.0',
       },
-      servers: [{ url: `http://localhost:${env.PORT}` }],
+      servers: [{ url: env.BASE_URL }],
       components: {
         securitySchemes: {
           BearerAuth: {
