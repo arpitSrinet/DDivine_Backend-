@@ -26,6 +26,7 @@ import adminContentRoutes from '@/modules/admin-content/admin-content.routes.js'
 import adminCustomersRoutes from '@/modules/admin-customers/admin-customers.routes.js';
 import adminDashboardRoutes from '@/modules/admin-dashboard/admin-dashboard.routes.js';
 import adminEventsRoutes from '@/modules/admin-events/admin-events.routes.js';
+import adminEventSlotsRoutes from '@/modules/admin-events/admin-event-slots.routes.js';
 import adminKnowledgeRoutes from '@/modules/admin-knowledge/admin-knowledge.routes.js';
 import adminMediaRoutes from '@/modules/admin-media/admin-media.routes.js';
 import adminPaymentsRoutes from '@/modules/admin-payments/admin-payments.routes.js';
@@ -39,12 +40,14 @@ import bookingsRoutes from '@/modules/bookings/bookings.routes.js';
 import childrenRoutes from '@/modules/children/children.routes.js';
 import contactRoutes from '@/modules/contact/contact.routes.js';
 import eventBookingsRoutes from '@/modules/event-bookings/event-bookings.routes.js';
+import eventBookingsV2Routes from '@/modules/event-bookings/event-bookings-v2.routes.js';
 import invoicesRoutes from '@/modules/invoices/invoices.routes.js';
 import { emailQueue } from '@/modules/jobs/queues/email.queue.js';
 import { invoiceQueue } from '@/modules/jobs/queues/invoice.queue.js';
 import { startEmailWorker } from '@/modules/jobs/workers/email.worker.js';
 import { startInvoiceWorker } from '@/modules/jobs/workers/invoice.worker.js';
 import eventsRoutes from '@/modules/events/events.routes.js';
+import eventsV2Routes from '@/modules/events/events-v2.routes.js';
 import knowledgeRoutes from '@/modules/knowledge/knowledge.routes.js';
 import leagueRoutes from '@/modules/league/league.routes.js';
 import notificationsRoutes from '@/modules/notifications/notifications.routes.js';
@@ -194,6 +197,7 @@ export async function buildApp() {
   await app.register(servicesRoutes);
   await app.register(sessionsRoutes);
   await app.register(eventBookingsRoutes);
+  await app.register(eventBookingsV2Routes);
   await app.register(bookingsRoutes);
   await app.register(paymentsRoutes);
   await app.register(invoicesRoutes);
@@ -202,6 +206,7 @@ export async function buildApp() {
   await app.register(leagueRoutes);
   await app.register(knowledgeRoutes);
   await app.register(eventsRoutes);
+  await app.register(eventsV2Routes);
   await app.register(schoolsRoutes);
   await app.register(adminDashboardRoutes);
   await app.register(adminSessionsRoutes);
@@ -213,6 +218,7 @@ export async function buildApp() {
   await app.register(adminCustomersRoutes);
   await app.register(adminChildrenRoutes);
   await app.register(adminEventsRoutes);
+  await app.register(adminEventSlotsRoutes);
   await app.register(adminMediaRoutes);
   await app.register(adminContactRoutes);
   await app.register(adminContentRoutes);

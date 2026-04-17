@@ -8,6 +8,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 import { z } from 'zod';
 
+import { env } from '@/config/env.js';
 import { AppError } from '@/shared/errors/AppError.js';
 import { prisma } from '@/shared/infrastructure/prisma.js';
 import { authMiddleware } from '@/shared/middleware/auth.middleware.js';
@@ -204,21 +205,37 @@ async function eventsRoutes(app: FastifyInstance): Promise<void> {
         },
         orderBy: { createdAt: 'desc' },
       });
-      await reply.status(200).send(
-        rows.map((row) => ({
-          id: row.id,
-          notes: row.notes ?? undefined,
+
+      const statusMap: Record<string, string> = {
+        PENDING: 'pending_payment',
+        PENDING_PAYMENT: 'pending_payment',
+        GOVERNMENT_PAYMENT_PENDING: 'government_payment_pending',
+        CONFIRMED: 'confirmed',
+        REFUNDED: 'refunded',
+        CANCELLED: 'cancelled',
+      };
+
+      await reply.status(200).send({
+        data: rows.map((row) => ({
+          bookingId: row.id,
+          bookingReference: row.bookingReference ?? row.id.toUpperCase().slice(0, 8),
+          status: statusMap[row.status] ?? row.status.toLowerCase(),
           createdAt: row.createdAt.toISOString(),
           child: row.child
-            ? {
-                id: row.child.id,
-                firstName: row.child.firstName,
-                lastName: row.child.lastName,
-              }
+            ? { id: row.child.id, firstName: row.child.firstName, lastName: row.child.lastName }
             : undefined,
-          event: mapEvent(row.event),
+          event: row.event ? mapEvent(row.event) : undefined,
+          payment: {
+            method: row.paymentMethod?.toLowerCase() ?? undefined,
+            currency: row.currency,
+            totalPaid: row.totalPaid.toNumber(),
+          },
+          receipt: {
+            downloadUrl: row.receiptUrl ?? `${env.BASE_URL}/api/v1/bookings/${row.id}/receipt`,
+          },
+          notes: row.notes ?? undefined,
         })),
-      );
+      });
     },
   });
 

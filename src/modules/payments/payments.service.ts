@@ -3,6 +3,8 @@
  * @description Stripe payment orchestration. Idempotent intent creation and webhook handling.
  * @module src/modules/payments/payments.service
  */
+import { Prisma } from '@prisma/client';
+import type { BookingStatus, PrismaClient } from '@prisma/client';
 import type Stripe from 'stripe';
 
 import { AppError } from '@/shared/errors/AppError.js';
@@ -10,11 +12,228 @@ import { env } from '@/config/env.js';
 import { eventBus } from '@/shared/events/event-bus.js';
 import { EventType } from '@/shared/events/event-types.js';
 import { logger } from '@/shared/infrastructure/logger.js';
+import { prisma } from '@/shared/infrastructure/prisma.js';
 import { getStripeClient } from '@/shared/utils/stripe.js';
+import { withTransaction } from '@/shared/utils/transaction.js';
 
 import { mapToPaymentResponse } from './payments.domain.js';
 import { paymentsRepository } from './payments.repository.js';
 import type { ICreatePaymentIntent, IPaymentIntentResponse, IPaymentResponse } from './payments.schema.js';
+
+type TxClient = Parameters<Parameters<PrismaClient['$transaction']>[0]>[0];
+
+async function generateEventBookingRef(tx: TxClient): Promise<string> {
+  for (let i = 0; i < 5; i++) {
+    const candidate = `EVT${Math.random().toString().slice(2, 8)}`;
+    const existing = await tx.calendarEventBooking.findUnique({
+      where: { bookingReference: candidate },
+      select: { id: true },
+    });
+    if (!existing) return candidate;
+  }
+  throw new Error('Unable to generate booking reference after 5 attempts');
+}
+
+/**
+ * Auto-confirms an event booking intent triggered by a Stripe checkout.session.completed
+ * webhook. Handles both V1 (single-event, eventId set) and V2 (cart, eventId null with items).
+ * Idempotent — safe to call multiple times for the same session.
+ */
+async function autoConfirmEventBookingIntent(
+  session: Stripe.Checkout.Session,
+): Promise<void> {
+  const intentId = session.client_reference_id;
+  if (!intentId) {
+    logger.warn({ sessionId: session.id }, 'Webhook: checkout.session.completed missing client_reference_id');
+    return;
+  }
+
+  const stripePaymentIntentId =
+    typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id;
+
+  const intent = await prisma.eventBookingIntent.findUnique({
+    where: { id: intentId },
+    include: {
+      items: {
+        include: {
+          slot: {
+            include: {
+              eventDate: {
+                include: {
+                  event: { select: { id: true, title: true, currency: true, addons: true, minAgeYears: true, maxAgeYears: true } },
+                },
+              },
+            },
+          },
+          child: { select: { id: true, firstName: true, lastName: true } },
+        },
+      },
+      booking: { select: { id: true } },
+    },
+  });
+
+  if (!intent) {
+    logger.warn({ intentId, sessionId: session.id }, 'Webhook: EventBookingIntent not found');
+    return;
+  }
+
+  if (intent.booking) {
+    logger.info({ intentId, bookingId: intent.booking.id }, 'Webhook: booking already confirmed, skipping');
+    return;
+  }
+
+  if (intent.status === 'CONFIRMED' || intent.status === 'CANCELLED') {
+    logger.info({ intentId, status: intent.status }, 'Webhook: intent already in terminal state, skipping');
+    return;
+  }
+
+  const resolvedStatus: BookingStatus = 'CONFIRMED';
+  const userId = intent.userId;
+
+  try {
+    await withTransaction(prisma, async (tx) => {
+      const existingBooking = await tx.calendarEventBooking.findFirst({
+        where: { intentId: intent.id, userId },
+        select: { id: true },
+      });
+      if (existingBooking) return;
+
+      const bookingReference = await generateEventBookingRef(tx);
+
+      if (intent.eventId) {
+        // ── V1: single-event intent ─────────────────────────────────────────
+        const duplicateV1 = await tx.calendarEventBooking.findFirst({
+          where: {
+            eventId: intent.eventId,
+            userId,
+            childId: intent.childId ?? null,
+            status: { notIn: ['CANCELLED', 'REFUNDED'] },
+          },
+          select: { id: true },
+        });
+        if (duplicateV1) {
+          logger.warn({ intentId }, 'Webhook V1: duplicate booking exists, skipping');
+          return;
+        }
+
+        const booking = await tx.calendarEventBooking.create({
+          data: {
+            eventId: intent.eventId,
+            userId,
+            childId: intent.childId,
+            intentId: intent.id,
+            notes: intent.medicalNotes,
+            medicalNotes: intent.medicalNotes,
+            status: resolvedStatus,
+            bookingReference,
+            fullName: intent.fullName,
+            email: intent.email,
+            phone: intent.phone,
+            paymentMethod: intent.paymentMethod,
+            stripeCheckoutSessionId: session.id,
+            stripePaymentIntentId: stripePaymentIntentId ?? null,
+            currency: intent.currency,
+            subtotal: intent.subtotal,
+            addonsTotal: intent.addonsTotal,
+            discountTotal: intent.discountTotal,
+            serviceFee: intent.serviceFee,
+            totalPaid: intent.total,
+            receiptUrl: `${env.BASE_URL}/api/v1/bookings/${bookingReference}/receipt`,
+          },
+        });
+
+        await tx.calendarEventBooking.update({
+          where: { id: booking.id },
+          data: { receiptUrl: `${env.BASE_URL}/api/v1/bookings/${booking.id}/receipt` },
+        });
+      } else {
+        // ── V2: cart intent with items ──────────────────────────────────────
+        if (intent.items.length === 0) {
+          logger.warn({ intentId }, 'Webhook V2: cart is empty, skipping');
+          return;
+        }
+
+        for (const item of intent.items) {
+          const slot = await tx.calendarEventSlot.findUnique({
+            where: { id: item.slotId },
+            select: { id: true, capacity: true, bookedCount: true, isActive: true },
+          });
+          if (!slot || !slot.isActive || slot.bookedCount >= slot.capacity) {
+            logger.warn({ intentId, slotId: item.slotId }, 'Webhook V2: slot unavailable, skipping confirm');
+            return;
+          }
+        }
+
+        const subtotal = intent.items.reduce((s, i) => s + i.lineSubtotal.toNumber(), 0);
+        const addonsTotal = intent.items.reduce((s, i) => s + i.lineAddonsTotal.toNumber(), 0);
+        const serviceFee = intent.items.reduce((s, i) => s + i.lineServiceFee.toNumber(), 0);
+        const totalPaid = Number((subtotal + addonsTotal + serviceFee).toFixed(2));
+
+        const created = await tx.calendarEventBooking.create({
+          data: {
+            userId,
+            intentId: intent.id,
+            status: resolvedStatus,
+            bookingReference,
+            fullName: intent.fullName,
+            email: intent.email,
+            phone: intent.phone,
+            paymentMethod: intent.paymentMethod,
+            stripeCheckoutSessionId: session.id,
+            stripePaymentIntentId: stripePaymentIntentId ?? null,
+            currency: intent.currency,
+            subtotal,
+            addonsTotal,
+            discountTotal: 0,
+            serviceFee,
+            totalPaid,
+            receiptUrl: null,
+            items: {
+              create: intent.items.map((item) => ({
+                slotId: item.slotId,
+                eventId: item.slot.eventDate.event.id,
+                eventDateId: item.slot.eventDateId,
+                childId: item.childId,
+                medicalNotes: item.medicalNotes,
+                addons: (item.addons ?? Prisma.JsonNull) as Prisma.InputJsonValue,
+                lineSubtotal: item.lineSubtotal,
+                lineAddonsTotal: item.lineAddonsTotal,
+                lineServiceFee: item.lineServiceFee,
+                lineTotal: item.lineTotal,
+              })),
+            },
+          },
+        });
+
+        for (const item of intent.items) {
+          await tx.calendarEventSlot.update({
+            where: { id: item.slotId },
+            data: { bookedCount: { increment: 1 } },
+          });
+        }
+
+        await tx.calendarEventBooking.update({
+          where: { id: created.id },
+          data: { receiptUrl: `${env.BASE_URL}/api/v2/bookings/${created.id}/receipt` },
+        });
+      }
+
+      await tx.eventBookingIntent.update({
+        where: { id: intent.id },
+        data: {
+          status: 'CONFIRMED',
+          currentStep: 'success',
+          stripeCheckoutSessionId: session.id,
+          stripePaymentIntentId: stripePaymentIntentId ?? undefined,
+        },
+      });
+    });
+
+    logger.info({ intentId, sessionId: session.id }, 'Webhook: event booking auto-confirmed');
+  } catch (err) {
+    logger.error({ intentId, sessionId: session.id, err }, 'Webhook: failed to auto-confirm event booking');
+  }
+}
 
 export const paymentsService = {
   async createPaymentIntent(
@@ -127,6 +346,13 @@ export const paymentsService = {
           bookingId: payment.bookingId,
           userId: intent.metadata?.userId ?? '',
         });
+        break;
+      }
+
+      case 'checkout.session.completed': {
+        const session = event.data.object as Stripe.Checkout.Session;
+        if (session.payment_status !== 'paid') break;
+        await autoConfirmEventBookingIntent(session);
         break;
       }
 

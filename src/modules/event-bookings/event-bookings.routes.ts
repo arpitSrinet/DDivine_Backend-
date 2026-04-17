@@ -264,7 +264,7 @@ function mapIntent(
       subtotal: Prisma.Decimal;
       serviceFee: Prisma.Decimal;
       addons: Prisma.JsonValue | null;
-    };
+    } | null;
     child: {
       firstName: string;
       lastName: string;
@@ -342,7 +342,7 @@ function mapConfirmation(booking: {
     endDate: Date | null;
     startTime: string | null;
     endTime: string | null;
-  };
+  } | null;
   child: { firstName: string; lastName: string } | null;
 }) {
   const statusMap: Record<BookingStatus, 'pending_payment' | 'government_payment_pending' | 'confirmed' | 'refunded' | 'cancelled'> = {
@@ -367,13 +367,13 @@ function mapConfirmation(booking: {
       phone: booking.phone ?? undefined,
     },
     event: {
-      id: booking.event.id,
-      title: booking.event.title,
-      venue: booking.event.location,
-      dateStart: toDateOnly(getEventStartDate(booking.event)),
-      dateEnd: toDateOnly(booking.event.endDate ?? getEventStartDate(booking.event)),
-      timeStart: getEventStartTime(booking.event),
-      timeEnd: booking.event.endTime ?? undefined,
+      id: booking.event!.id,
+      title: booking.event!.title,
+      venue: booking.event!.location,
+      dateStart: toDateOnly(getEventStartDate(booking.event!)),
+      dateEnd: toDateOnly(booking.event!.endDate ?? getEventStartDate(booking.event!)),
+      timeStart: getEventStartTime(booking.event!),
+      timeEnd: booking.event!.endTime ?? undefined,
     },
     payment: {
       method: booking.paymentMethod?.toLowerCase() ?? undefined,
@@ -406,7 +406,7 @@ async function ensureActiveIntent(
       date: Date;
       minAgeYears: number | null;
       maxAgeYears: number | null;
-    };
+    } | null;
     child: {
       firstName: string;
       lastName: string;
@@ -677,15 +677,15 @@ async function eventBookingsRoutes(app: FastifyInstance): Promise<void> {
       });
       if (!child) throw new AppError('ACCOUNT_NOT_FOUND', 'Child not found.', 404);
 
-      if (intent.event.minAgeYears !== null && intent.event.maxAgeYears !== null) {
+      if (intent.event!.minAgeYears !== null && intent.event!.maxAgeYears !== null) {
         assertAgeEligible(child, {
-          date: intent.event.startDate ?? intent.event.date,
-          minAgeYears: intent.event.minAgeYears,
-          maxAgeYears: intent.event.maxAgeYears,
+          date: intent.event!.startDate ?? intent.event!.date,
+          minAgeYears: intent.event!.minAgeYears,
+          maxAgeYears: intent.event!.maxAgeYears,
         });
       }
 
-      const summary = computeSummary(intent.event, request.body.addons);
+      const summary = computeSummary(intent.event!, request.body.addons);
       const updated = await prisma.eventBookingIntent.update({
         where: { id: intent.id },
         data: {
@@ -783,6 +783,7 @@ async function eventBookingsRoutes(app: FastifyInstance): Promise<void> {
         const defaultSuccessUrl = `${frontendBaseUrl}/events/checkout/success`;
         const defaultCancelUrl = `${frontendBaseUrl}/events/checkout/cancel`;
         const stripe = getStripeClient();
+        if (!intent.eventId) throw new AppError('VALIDATION_ERROR', 'Intent has no associated event.', 422);
         const event = await prisma.calendarEvent.findUnique({
           where: { id: intent.eventId },
           select: { title: true },
@@ -1049,10 +1050,10 @@ async function eventBookingsRoutes(app: FastifyInstance): Promise<void> {
 
       const pdfBuffer = await generateReceiptPdf({
         bookingReference: booking.bookingReference ?? booking.id,
-        eventTitle: booking.event.title,
-        venue: booking.event.location,
-        dateStart: toDateOnly(getEventStartDate(booking.event)) ?? 'N/A',
-        dateEnd: toDateOnly(booking.event.endDate ?? getEventStartDate(booking.event)) ?? 'N/A',
+        eventTitle: booking.event!.title,
+        venue: booking.event!.location,
+        dateStart: toDateOnly(getEventStartDate(booking.event!)) ?? 'N/A',
+        dateEnd: toDateOnly(booking.event!.endDate ?? getEventStartDate(booking.event!)) ?? 'N/A',
         attendee: booking.child ? `${booking.child.firstName} ${booking.child.lastName}` : 'N/A',
         contact: booking.fullName ?? 'N/A',
         email: booking.email ?? 'N/A',

@@ -143,6 +143,8 @@ model Child {
   eventBookings     CalendarEventBooking[]
   eventBookingIntents EventBookingIntent[]
   performances      ChildPerformance[]
+  eventBookingIntentItems EventBookingIntentItem[]
+  eventBookingItems       CalendarEventBookingItem[]
 
   @@index([userId])
 }
@@ -457,13 +459,15 @@ model CalendarEvent {
   banner   MediaAsset?          @relation(fields: [bannerId], references: [id], onDelete: SetNull)
   bookings CalendarEventBooking[]
   intents  EventBookingIntent[]
+  dates    CalendarEventDate[]
+  bookingItems CalendarEventBookingItem[]
 
   @@index([date, isPublic])
 }
 
 model CalendarEventBooking {
   id        String   @id @default(cuid())
-  eventId   String
+  eventId   String?
   userId    String
   childId   String?
   notes     String?
@@ -489,19 +493,19 @@ model CalendarEventBooking {
   updatedAt DateTime @updatedAt
   createdAt DateTime @default(now())
 
-  event  CalendarEvent      @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  user   User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  child  Child?             @relation(fields: [childId], references: [id], onDelete: SetNull)
+  event  CalendarEvent?      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user   User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  child  Child?              @relation(fields: [childId], references: [id], onDelete: SetNull)
   intent EventBookingIntent? @relation(fields: [intentId], references: [id], onDelete: SetNull)
+  items  CalendarEventBookingItem[]
 
   @@index([eventId])
   @@index([userId, createdAt])
-  @@unique([eventId, userId, childId])
 }
 
 model EventBookingIntent {
   id        String             @id @default(cuid())
-  eventId    String
+  eventId    String?
   userId     String
   childId    String?
   status     EventBookingStatus @default(DRAFT)
@@ -518,6 +522,7 @@ model EventBookingIntent {
   stripeCheckoutSessionId String? @unique
   stripePaymentIntentId String? @unique
   stripeCheckoutUrl String?
+  stripeCheckoutFingerprint String?
   currency  String             @default("GBP")
   subtotal  Decimal            @default(0) @db.Decimal(10, 2)
   addonsTotal Decimal          @default(0) @db.Decimal(10, 2)
@@ -527,13 +532,105 @@ model EventBookingIntent {
   createdAt DateTime           @default(now())
   updatedAt DateTime           @updatedAt
 
-  event   CalendarEvent        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  event   CalendarEvent?       @relation(fields: [eventId], references: [id], onDelete: Cascade)
   user    User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   child   Child?               @relation(fields: [childId], references: [id], onDelete: SetNull)
   booking CalendarEventBooking?
+  items   EventBookingIntentItem[]
 
   @@index([userId, createdAt])
   @@index([eventId, expiresAt])
+}
+
+// ─── Event dates & slots (v2 multi-booking) ──────────────
+
+model CalendarEventDate {
+  id        String   @id @default(cuid())
+  eventId   String
+  date      DateTime
+  isClosed  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  event CalendarEvent      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  slots CalendarEventSlot[]
+  bookingItems CalendarEventBookingItem[]
+
+  @@unique([eventId, date])
+  @@index([eventId])
+}
+
+model CalendarEventSlot {
+  id          String   @id @default(cuid())
+  eventDateId String
+  startTime   String
+  endTime     String
+  capacity    Int
+  bookedCount Int      @default(0)
+  minAgeYears Int?
+  maxAgeYears Int?
+  price       Decimal  @default(0) @db.Decimal(10, 2)
+  serviceFee  Decimal  @default(0) @db.Decimal(10, 2)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  eventDate    CalendarEventDate          @relation(fields: [eventDateId], references: [id], onDelete: Cascade)
+  intentItems  EventBookingIntentItem[]
+  bookingItems CalendarEventBookingItem[]
+
+  @@unique([eventDateId, startTime, endTime])
+  @@index([eventDateId])
+}
+
+model EventBookingIntentItem {
+  id              String   @id @default(cuid())
+  intentId        String
+  slotId          String
+  childId         String?
+  medicalNotes    String?
+  addons          Json?
+  lineSubtotal    Decimal  @default(0) @db.Decimal(10, 2)
+  lineAddonsTotal Decimal  @default(0) @db.Decimal(10, 2)
+  lineServiceFee  Decimal  @default(0) @db.Decimal(10, 2)
+  lineTotal       Decimal  @default(0) @db.Decimal(10, 2)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  intent EventBookingIntent @relation(fields: [intentId], references: [id], onDelete: Cascade)
+  slot   CalendarEventSlot  @relation(fields: [slotId], references: [id], onDelete: Cascade)
+  child  Child?             @relation(fields: [childId], references: [id], onDelete: SetNull)
+
+  @@unique([intentId, slotId, childId])
+  @@index([intentId])
+  @@index([slotId])
+}
+
+model CalendarEventBookingItem {
+  id              String   @id @default(cuid())
+  bookingId       String
+  slotId          String
+  eventId         String
+  eventDateId     String
+  childId         String?
+  medicalNotes    String?
+  addons          Json?
+  lineSubtotal    Decimal  @default(0) @db.Decimal(10, 2)
+  lineAddonsTotal Decimal  @default(0) @db.Decimal(10, 2)
+  lineServiceFee  Decimal  @default(0) @db.Decimal(10, 2)
+  lineTotal       Decimal  @default(0) @db.Decimal(10, 2)
+  createdAt       DateTime @default(now())
+
+  booking CalendarEventBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  slot    CalendarEventSlot    @relation(fields: [slotId], references: [id])
+  event   CalendarEvent        @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  eventDate CalendarEventDate  @relation(fields: [eventDateId], references: [id], onDelete: Restrict)
+  child   Child?               @relation(fields: [childId], references: [id], onDelete: SetNull)
+
+  @@index([bookingId])
+  @@index([slotId])
+  @@index([eventId])
+  @@index([eventDateId])
 }
 
 // ─── Contact form inquiries ───────────────────────────────

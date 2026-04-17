@@ -21,6 +21,22 @@ const bookingInclude = {
 
 const eventBookingInclude = {
   event: true,
+  items: {
+    include: {
+      slot: {
+        include: {
+          eventDate: {
+            include: {
+              event: {
+                select: { title: true, location: true },
+              },
+            },
+          },
+        },
+      },
+    },
+    orderBy: { createdAt: 'asc' },
+  },
   child: {
     select: { firstName: true, lastName: true },
   },
