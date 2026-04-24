@@ -1,0 +1,2 @@
+ALTER TABLE "Child"
+ADD COLUMN "avatarUrl" TEXT;

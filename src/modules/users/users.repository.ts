@@ -14,6 +14,10 @@ interface UpdateUserData {
   town?: string;
   county?: string;
   postcode?: string;
+  schoolName?: string;
+  schoolType?: string;
+  registrationNumber?: string;
+  website?: string;
   avatarUrl?: string;
 }
 
@@ -37,6 +41,10 @@ export const usersRepository = {
 
   async updateAvatarUrlById(id: string, avatarUrl: string) {
     return prisma.user.update({ where: { id }, data: { avatarUrl } });
+  },
+
+  async clearAvatarUrlById(id: string) {
+    return prisma.user.update({ where: { id }, data: { avatarUrl: null } });
   },
 
   async deleteById(id: string): Promise<void> {

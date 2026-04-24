@@ -52,6 +52,8 @@ const bookingResponseSchema = {
     payment: {
       type: 'object',
       properties: {
+        type: { type: 'string', enum: ['stripe', 'government'] },
+        status: { type: 'string', enum: ['pending', 'paid', 'refunded', 'failed'] },
         method: { type: 'string' },
         currency: { type: 'string' },
         subtotal: { type: 'number' },
@@ -105,6 +107,7 @@ async function bookingsRoutes(app: FastifyInstance): Promise<void> {
         properties: {
           sessionId: { type: 'string' },
           childId: { type: 'string', description: 'Required for parent bookings' },
+          paymentType: { type: 'string', enum: ['STRIPE', 'GOVERNMENT'] },
           idempotencyKey: { type: 'string' },
         },
       },

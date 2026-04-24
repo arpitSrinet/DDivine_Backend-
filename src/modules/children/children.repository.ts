@@ -14,6 +14,7 @@ interface CreateChildData {
   gender: string;
   yearGroup: string;
   medicalConditions?: string;
+  emergencyNote?: string;
   emergencyContacts: IEmergencyContact[];
 }
 
@@ -23,7 +24,9 @@ interface UpdateChildData {
   dateOfBirth?: Date;
   gender?: string;
   yearGroup?: string;
+  avatarUrl?: string;
   medicalConditions?: string;
+  emergencyNote?: string;
 }
 
 export const childrenRepository = {
@@ -50,6 +53,7 @@ export const childrenRepository = {
         gender: data.gender,
         yearGroup: data.yearGroup,
         medicalConditions: data.medicalConditions,
+        emergencyNote: data.emergencyNote,
         emergencyContacts: {
           create: data.emergencyContacts.map((ec) => ({
             name: ec.name,
@@ -65,6 +69,20 @@ export const childrenRepository = {
     return prisma.child.update({
       where: { id: childId },
       data,
+    });
+  },
+
+  async updateAvatarUrlById(childId: string, avatarUrl: string) {
+    return prisma.child.update({
+      where: { id: childId },
+      data: { avatarUrl },
+    });
+  },
+
+  async clearAvatarUrlById(childId: string) {
+    return prisma.child.update({
+      where: { id: childId },
+      data: { avatarUrl: null },
     });
   },
 

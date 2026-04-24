@@ -26,6 +26,11 @@ const userProfileSchema = {
     town: { type: 'string' },
     county: { type: 'string' },
     postcode: { type: 'string' },
+    schoolName: { type: 'string' },
+    schoolType: { type: 'string' },
+    registrationNumber: { type: 'string' },
+    website: { type: 'string' },
+    adminFullName: { type: 'string' },
   },
 };
 
@@ -57,6 +62,11 @@ async function usersRoutes(app: FastifyInstance): Promise<void> {
           town: { type: 'string' },
           county: { type: 'string' },
           postcode: { type: 'string' },
+          schoolName: { type: 'string' },
+          schoolType: { type: 'string' },
+          registrationNumber: { type: 'string' },
+          website: { type: 'string' },
+          adminFullName: { type: 'string' },
         },
       },
       response: { 200: userProfileSchema },
@@ -114,6 +124,19 @@ async function usersRoutes(app: FastifyInstance): Promise<void> {
     },
     preHandler: [authMiddleware],
     handler: usersController.uploadAvatar,
+  });
+
+  app.delete('/api/v1/users/me/avatar', {
+    schema: {
+      tags: ['Users'],
+      summary: 'Remove current user profile avatar',
+      security: [{ BearerAuth: [] }],
+      response: {
+        200: { type: 'object', properties: { message: { type: 'string' } } },
+      },
+    },
+    preHandler: [authMiddleware],
+    handler: usersController.removeAvatar,
   });
 }
 

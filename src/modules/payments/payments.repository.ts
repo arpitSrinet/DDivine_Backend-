@@ -11,7 +11,19 @@ export const paymentsRepository = {
   async findBookingById(bookingId: string, userId: string) {
     return prisma.booking.findFirst({
       where: { id: bookingId, userId },
-      include: { session: { select: { price: true } } },
+      select: {
+        id: true,
+        userId: true,
+        childId: true,
+        status: true,
+        cancelledAt: true,
+        createdAt: true,
+        updatedAt: true,
+        sessionId: true,
+        price: true,
+        paymentType: true,
+        session: { select: { price: true } },
+      },
     });
   },
 
@@ -62,7 +74,11 @@ export const paymentsRepository = {
   async updateBookingStatus(bookingId: string, status: BookingStatus) {
     return prisma.booking.update({
       where: { id: bookingId },
-      data: { status, ...(status === 'CANCELLED' ? { cancelledAt: new Date() } : {}) },
+      data: {
+        status,
+        ...(status === 'CONFIRMED' ? { paymentStatus: 'PAID' } : {}),
+        ...(status === 'CANCELLED' ? { cancelledAt: new Date() } : {}),
+      },
     });
   },
 };

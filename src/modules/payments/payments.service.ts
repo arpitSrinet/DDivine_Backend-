@@ -254,6 +254,14 @@ export const paymentsService = {
       );
     }
 
+    if (booking.paymentType === 'GOVERNMENT') {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        'Stripe payment intent is not available for government payment bookings.',
+        422,
+      );
+    }
+
     // Idempotency — return existing payment intent if already created for this booking
     const existingPayment = await paymentsRepository.findByBookingId(input.bookingId);
     if (existingPayment) {

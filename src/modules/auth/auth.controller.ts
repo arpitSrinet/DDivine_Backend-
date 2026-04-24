@@ -6,7 +6,14 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import { authService } from './auth.service.js';
-import type { ILogin, IParentSignup, ISchoolSignup } from './auth.schema.js';
+import type {
+  ILogin,
+  IParentSignup,
+  ISchoolSignup,
+  ISendOtp,
+  IVerifyOtp,
+  IVerifySignupOtp,
+} from './auth.schema.js';
 
 export const authController = {
   async signupParent(
@@ -30,6 +37,30 @@ export const authController = {
     reply: FastifyReply,
   ): Promise<void> {
     const result = await authService.login(request.body);
+    await reply.status(200).send(result);
+  },
+
+  async sendOtp(
+    request: FastifyRequest<{ Body: ISendOtp }>,
+    reply: FastifyReply,
+  ): Promise<void> {
+    const result = await authService.sendOtp(request.body);
+    await reply.status(200).send(result);
+  },
+
+  async verifyOtp(
+    request: FastifyRequest<{ Body: IVerifyOtp }>,
+    reply: FastifyReply,
+  ): Promise<void> {
+    const result = await authService.verifyOtp(request.body);
+    await reply.status(200).send(result);
+  },
+
+  async verifySignupOtp(
+    request: FastifyRequest<{ Body: IVerifySignupOtp }>,
+    reply: FastifyReply,
+  ): Promise<void> {
+    const result = await authService.verifySignupOtp(request.body);
     await reply.status(200).send(result);
   },
 

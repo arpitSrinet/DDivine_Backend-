@@ -7,7 +7,7 @@ import type { MultipartFile } from '@fastify/multipart';
 
 import { AppError } from '@/shared/errors/AppError.js';
 import { comparePassword, hashPassword } from '@/shared/utils/hash.js';
-import { saveUploadedFile } from '@/shared/utils/fileUpload.js';
+import { deleteUploadedFile, saveUploadedFile } from '@/shared/utils/fileUpload.js';
 
 import { usersRepository } from './users.repository.js';
 import type { IChangePassword, IUpdateProfile, IUserProfileResponse } from './users.schema.js';
@@ -15,6 +15,7 @@ import type { IChangePassword, IUpdateProfile, IUserProfileResponse } from './us
 function mapToProfileResponse(user: {
   id: string;
   email: string;
+  role: string;
   firstName: string;
   lastName: string;
   avatarUrl: string | null;
@@ -24,7 +25,14 @@ function mapToProfileResponse(user: {
   town: string | null;
   county: string | null;
   postcode: string | null;
+  schoolName: string | null;
+  schoolType: string | null;
+  registrationNumber: string | null;
+  website: string | null;
 }): IUserProfileResponse {
+  const isSchoolUser = user.role === 'SCHOOL';
+  const adminFullName = `${user.firstName} ${user.lastName}`.trim();
+
   return {
     id: user.id,
     email: user.email,
@@ -37,6 +45,14 @@ function mapToProfileResponse(user: {
     ...(user.town && { town: user.town }),
     ...(user.county && { county: user.county }),
     ...(user.postcode && { postcode: user.postcode }),
+    ...(isSchoolUser && user.schoolName && { schoolName: user.schoolName }),
+    ...(isSchoolUser && user.schoolType && { schoolType: user.schoolType }),
+    ...(isSchoolUser &&
+      user.registrationNumber && {
+        registrationNumber: user.registrationNumber,
+      }),
+    ...(isSchoolUser && user.website && { website: user.website }),
+    ...(isSchoolUser && { adminFullName }),
   };
 }
 
@@ -55,15 +71,35 @@ export const usersService = {
       throw new AppError('ACCOUNT_NOT_FOUND', 'User not found.', 404);
     }
 
+    let firstName = input.firstName?.trim();
+    let lastName = input.lastName?.trim();
+
+    if (user.role === 'SCHOOL' && input.adminFullName !== undefined) {
+      const trimmedAdminName = input.adminFullName.trim();
+      const [adminFirstName, ...rest] = trimmedAdminName.split(/\s+/);
+      firstName = adminFirstName;
+      lastName = rest.join(' ');
+    }
+
     const updated = await usersRepository.updateById(userId, {
-      ...(input.firstName && { firstName: input.firstName.trim() }),
-      ...(input.lastName && { lastName: input.lastName.trim() }),
+      ...(firstName !== undefined && { firstName }),
+      ...(lastName !== undefined && { lastName }),
       ...(input.phone !== undefined && { phone: input.phone }),
       ...(input.addressLine1 !== undefined && { addressLine1: input.addressLine1 }),
       ...(input.addressLine2 !== undefined && { addressLine2: input.addressLine2 }),
       ...(input.town !== undefined && { town: input.town }),
       ...(input.county !== undefined && { county: input.county }),
       ...(input.postcode !== undefined && { postcode: input.postcode }),
+      ...(user.role === 'SCHOOL' &&
+        input.schoolName !== undefined && { schoolName: input.schoolName.trim() }),
+      ...(user.role === 'SCHOOL' &&
+        input.schoolType !== undefined && { schoolType: input.schoolType.trim() }),
+      ...(user.role === 'SCHOOL' &&
+        input.registrationNumber !== undefined && {
+          registrationNumber: input.registrationNumber.trim(),
+        }),
+      ...(user.role === 'SCHOOL' &&
+        input.website !== undefined && { website: input.website.trim() }),
     });
 
     return mapToProfileResponse(updated);
@@ -111,5 +147,20 @@ export const usersService = {
     await usersRepository.updateAvatarUrlById(userId, avatarUrl);
 
     return { avatarUrl };
+  },
+
+  async removeAvatar(userId: string): Promise<{ message: string }> {
+    const user = await usersRepository.findById(userId);
+    if (!user) {
+      throw new AppError('ACCOUNT_NOT_FOUND', 'User not found.', 404);
+    }
+    if (!user.avatarUrl) {
+      throw new AppError('NOT_FOUND', 'No avatar to remove.', 404);
+    }
+
+    await deleteUploadedFile(user.avatarUrl);
+    await usersRepository.clearAvatarUrlById(userId);
+
+    return { message: 'Avatar removed successfully.' };
   },
 };

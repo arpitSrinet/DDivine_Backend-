@@ -26,6 +26,20 @@ export function mapToBookingResponse(booking: BookingWithRelations): IBookingRes
     time: booking.session.time,
     location: booking.session.location,
     status: BOOKING_STATUS_MAP[booking.status],
+    payment: {
+      type: booking.paymentType.toLowerCase() as 'stripe' | 'government',
+      status: booking.paymentStatus.toLowerCase() as 'pending' | 'paid' | 'refunded' | 'failed',
+      currency: 'GBP',
+      totalPaid: booking.price.toNumber(),
+    },
+    ...(booking.xeroInvoiceId
+      ? {
+          invoice: {
+            downloadPdfUrl: `/api/v1/xero/bookings/${booking.id}/invoice/pdf`,
+            emailUrl: `/api/v1/xero/bookings/${booking.id}/invoice/email`,
+          },
+        }
+      : {}),
     ...(booking.session.coachName && { coachName: booking.session.coachName }),
     ...(booking.price && { price: booking.price.toNumber() }),
   };

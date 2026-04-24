@@ -50,6 +50,7 @@ describe('usersService', () => {
     mockUsersRepository.findById.mockResolvedValue({
       id: 'user-1',
       email: 'user@test.com',
+      role: 'PARENT',
       firstName: 'John',
       lastName: 'Doe',
       avatarUrl: null,
@@ -59,6 +60,10 @@ describe('usersService', () => {
       town: 'London',
       county: null,
       postcode: 'SW1A 1AA',
+      schoolName: null,
+      schoolType: null,
+      registrationNumber: null,
+      website: null,
     } as never);
 
     const result = await usersService.getProfile('user-1');
@@ -73,6 +78,90 @@ describe('usersService', () => {
       town: 'London',
       postcode: 'SW1A 1AA',
     });
+  });
+
+  it('includes school-only fields for school users', async () => {
+    mockUsersRepository.findById.mockResolvedValue({
+      id: 'school-1',
+      email: 'school@test.com',
+      role: 'SCHOOL',
+      firstName: 'Jane',
+      lastName: 'Smith',
+      avatarUrl: null,
+      phone: null,
+      addressLine1: null,
+      addressLine2: null,
+      town: null,
+      county: null,
+      postcode: null,
+      schoolName: 'Greenwood Academy',
+      schoolType: 'Primary',
+      registrationNumber: 'REG-1',
+      website: 'https://greenwood.example',
+    } as never);
+
+    const result = await usersService.getProfile('school-1');
+
+    expect(result).toEqual({
+      id: 'school-1',
+      email: 'school@test.com',
+      firstName: 'Jane',
+      lastName: 'Smith',
+      schoolName: 'Greenwood Academy',
+      schoolType: 'Primary',
+      registrationNumber: 'REG-1',
+      website: 'https://greenwood.example',
+      adminFullName: 'Jane Smith',
+    });
+  });
+
+  it('ignores school-only update fields for parent users', async () => {
+    mockUsersRepository.findById.mockResolvedValue({
+      id: 'parent-1',
+      email: 'parent@test.com',
+      role: 'PARENT',
+      firstName: 'Parent',
+      lastName: 'User',
+      avatarUrl: null,
+      phone: null,
+      addressLine1: null,
+      addressLine2: null,
+      town: null,
+      county: null,
+      postcode: null,
+      schoolName: null,
+      schoolType: null,
+      registrationNumber: null,
+      website: null,
+    } as never);
+    mockUsersRepository.updateById.mockResolvedValue({
+      id: 'parent-1',
+      email: 'parent@test.com',
+      role: 'PARENT',
+      firstName: 'Parent',
+      lastName: 'User',
+      avatarUrl: null,
+      phone: null,
+      addressLine1: null,
+      addressLine2: null,
+      town: null,
+      county: null,
+      postcode: null,
+      schoolName: null,
+      schoolType: null,
+      registrationNumber: null,
+      website: null,
+    } as never);
+
+    await usersService.updateProfile('parent-1', {
+      schoolName: 'Should Not Apply',
+      schoolType: 'Secondary',
+      registrationNumber: 'SHOULD-NOT-APPLY',
+      website: 'https://ignored.example',
+      adminFullName: 'Ignored Name',
+    });
+
+    expect(mockUsersRepository.updateById).toHaveBeenCalledWith('parent-1', {});
   });
 
   it('throws INVALID_CREDENTIALS when current password is incorrect', async () => {

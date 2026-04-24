@@ -69,6 +69,23 @@ export const LoginSchema = z.object({
   role: z.enum(['parent', 'school', 'admin']),
 });
 
+export const SendOtpSchema = z.object({
+  email: z.string().email(),
+  role: z.enum(['parent', 'school', 'admin']),
+});
+
+export const VerifyOtpSchema = z.object({
+  email: z.string().email(),
+  role: z.enum(['parent', 'school', 'admin']),
+  otp: z.string().regex(/^\d{6}$/, 'OTP must be a 6-digit code'),
+});
+
+export const VerifySignupOtpSchema = z.object({
+  email: z.string().email(),
+  role: z.enum(['parent', 'school', 'admin']),
+  otp: z.string().regex(/^\d{6}$/, 'OTP must be a 6-digit code'),
+});
+
 // ─── Responses ────────────────────────────────────────────────────────────────
 
 export const AuthUserResponseSchema = z.object({
@@ -96,5 +113,8 @@ export type IParentSignup = z.infer<typeof ParentSignupSchema>;
 export type ISchoolSignup = z.infer<typeof SchoolSignupSchema>;
 export type ISignupChildProfile = z.infer<typeof SignupChildProfileSchema>;
 export type ILogin = z.infer<typeof LoginSchema>;
+export type ISendOtp = z.infer<typeof SendOtpSchema>;
+export type IVerifyOtp = z.infer<typeof VerifyOtpSchema>;
+export type IVerifySignupOtp = z.infer<typeof VerifySignupOtpSchema>;
 export type IAuthSessionResponse = z.infer<typeof AuthSessionResponseSchema>;
 export type IMessageResponse = z.infer<typeof MessageResponseSchema>;

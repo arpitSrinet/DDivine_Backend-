@@ -52,4 +52,9 @@ export const usersController = {
     const result = await usersService.uploadAvatar(request.user!.id, file);
     await reply.status(200).send(result);
   },
+
+  async removeAvatar(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+    const result = await usersService.removeAvatar(request.user!.id);
+    await reply.status(200).send(result);
+  },
 };

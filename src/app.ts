@@ -27,6 +27,7 @@ import adminCustomersRoutes from '@/modules/admin-customers/admin-customers.rout
 import adminDashboardRoutes from '@/modules/admin-dashboard/admin-dashboard.routes.js';
 import adminEventsRoutes from '@/modules/admin-events/admin-events.routes.js';
 import adminEventSlotsRoutes from '@/modules/admin-events/admin-event-slots.routes.js';
+import adminLeagueGameRequestsRoutes from '@/modules/admin-league-game-requests/admin-league-game-requests.routes.js';
 import adminKnowledgeRoutes from '@/modules/admin-knowledge/admin-knowledge.routes.js';
 import adminMediaRoutes from '@/modules/admin-media/admin-media.routes.js';
 import adminPaymentsRoutes from '@/modules/admin-payments/admin-payments.routes.js';
@@ -57,12 +58,14 @@ import schoolsRoutes from '@/modules/schools/schools.routes.js';
 import servicesRoutes from '@/modules/services/services.routes.js';
 import sessionsRoutes from '@/modules/sessions/sessions.routes.js';
 import usersRoutes from '@/modules/users/users.routes.js';
+import xeroRoutes from '@/modules/xero/xero.routes.js';
 import errorHandler from '@/shared/errors/errorHandler.js';
 import { registerPaymentHandlers } from '@/shared/events/handlers/payment.handlers.js';
 import { logger } from '@/shared/infrastructure/logger.js';
 import { prisma } from '@/shared/infrastructure/prisma.js';
 import { redis } from '@/shared/infrastructure/redis.js';
 import requestId from '@/shared/middleware/requestId.js';
+import { xeroService } from '@/modules/xero/xero.service.js';
 
 type CompatibleBullBoardQueueAdapter = NonNullable<
   Parameters<typeof createBullBoard>[0]['queues']
@@ -223,13 +226,30 @@ export async function buildApp() {
   await app.register(adminContactRoutes);
   await app.register(adminContentRoutes);
   await app.register(adminScoresRoutes);
+  await app.register(adminLeagueGameRequestsRoutes);
   await app.register(adminRolesRoutes);
   await app.register(contactRoutes);
+  await app.register(xeroRoutes);
 
   // --- Register event handlers (Phase 6: BullMQ workers also started here) ---
   registerPaymentHandlers();
   startEmailWorker();
   startInvoiceWorker();
+
+  // --- Optional: poll Xero to sync government payment invoices ---
+  const xeroPollSeconds = env.XERO_GOV_SYNC_INTERVAL_SECONDS ?? 0;
+  if (xeroPollSeconds > 0) {
+    setInterval(async () => {
+      try {
+        const result = await xeroService.syncGovernmentPendingBookings();
+        if (result.synced > 0) {
+          logger.info({ synced: result.synced }, 'Xero government booking sync completed');
+        }
+      } catch (err) {
+        logger.error({ err }, 'Xero government booking sync failed');
+      }
+    }, xeroPollSeconds * 1000);
+  }
 
   // --- Health routes ---
   app.get('/api/v1/health', {

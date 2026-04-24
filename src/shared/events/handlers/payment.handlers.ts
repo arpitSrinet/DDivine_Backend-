@@ -11,6 +11,7 @@ import { NOTIFICATION_TYPES } from '@/modules/notifications/notifications.schema
 import { invoicesService } from '@/modules/invoices/invoices.service.js';
 import { emailQueue } from '@/modules/jobs/queues/email.queue.js';
 import { invoiceQueue } from '@/modules/jobs/queues/invoice.queue.js';
+import { xeroService } from '@/modules/xero/xero.service.js';
 import { prisma } from '@/shared/infrastructure/prisma.js';
 import { logger } from '@/shared/infrastructure/logger.js';
 
@@ -42,8 +43,13 @@ export function registerPaymentHandlers(): void {
     await notificationsService.create({
       userId,
       type: NOTIFICATION_TYPES.BOOKING_CONFIRMED,
-      title: 'Booking Confirmed',
-      body: `Your booking for ${booking.session.service.title} on ${booking.session.date.toLocaleDateString('en-GB')} has been confirmed.`,
+      title: booking.status === 'CONFIRMED' ? 'Booking Confirmed' : 'Booking Created',
+      body:
+        booking.status === 'CONFIRMED'
+          ? `Your booking for ${booking.session.service.title} on ${booking.session.date.toLocaleDateString('en-GB')} has been confirmed.`
+          : booking.paymentType === 'GOVERNMENT'
+            ? `Your booking for ${booking.session.service.title} on ${booking.session.date.toLocaleDateString('en-GB')} has been created and is awaiting government payment.`
+            : `Your booking for ${booking.session.service.title} on ${booking.session.date.toLocaleDateString('en-GB')} has been created and is awaiting payment.`,
       metadata: { bookingId } as Prisma.InputJsonValue,
     });
 
@@ -56,7 +62,29 @@ export function registerPaymentHandlers(): void {
       sessionDate: booking.session.date.toISOString(),
       sessionTime: booking.session.time,
       location: booking.session.location,
+      paymentType: booking.paymentType,
+      bookingStatus:
+        booking.status === 'CONFIRMED'
+          ? 'CONFIRMED'
+          : booking.status === 'GOVERNMENT_PAYMENT_PENDING'
+            ? 'GOVERNMENT_PAYMENT_PENDING'
+            : 'PENDING_PAYMENT',
     });
+
+    // Create Xero invoice on booking creation for both Stripe and Government flows.
+    try {
+      await xeroService.createInvoiceForBooking(bookingId);
+      // Government flow: trigger Xero invoice email so parent can use it for TFC/UC.
+      if (booking.paymentType === 'GOVERNMENT') {
+        await xeroService.emailInvoiceForBooking({
+          bookingId,
+          requesterUserId: userId,
+          isAdmin: true,
+        });
+      }
+    } catch (err) {
+      logger.error({ bookingId, err }, 'booking.created: failed to create Xero invoice');
+    }
   });
 
   // --- Payment Succeeded ---
@@ -115,6 +143,13 @@ export function registerPaymentHandlers(): void {
         });
       }
     }
+
+    // Stripe flow: mark related Xero invoice as paid.
+    try {
+      await xeroService.markInvoicePaidForBooking(bookingId, payment.amount.toNumber());
+    } catch (err) {
+      logger.error({ bookingId, paymentId, err }, 'payment.succeeded: failed to sync paid state to Xero');
+    }
   });
 
   // --- Payment Failed ---
@@ -169,5 +204,22 @@ export function registerPaymentHandlers(): void {
       userFirstName: user.firstName,
       amount: refund.amount.toNumber(),
     });
+
+    const payment = await prisma.payment.findUnique({
+      where: { id: paymentId },
+      select: { bookingId: true, amount: true },
+    });
+    if (payment?.bookingId) {
+      try {
+        await xeroService.createCreditNoteForBookingRefund({
+          bookingId: payment.bookingId,
+          amount: refund.amount.toNumber(),
+          reason: refund.reason,
+        });
+        await xeroService.syncBookingInvoiceStatus(payment.bookingId);
+      } catch (err) {
+        logger.error({ bookingId: payment.bookingId, refundId, err }, 'refund.issued: failed to sync Xero booking status');
+      }
+    }
   });
 }

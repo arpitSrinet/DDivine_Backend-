@@ -5,8 +5,8 @@
  * Swap the body of `saveUploadedFile` to redirect to S3/Cloudinary in future.
  * @module src/shared/utils/fileUpload
  */
-import { createWriteStream, mkdirSync } from 'node:fs';
-import { extname, join, resolve } from 'node:path';
+import { createWriteStream, mkdirSync, unlink } from 'node:fs';
+import { basename, extname, join, resolve } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { randomUUID } from 'node:crypto';
 import type { MultipartFile } from '@fastify/multipart';
@@ -89,4 +89,24 @@ export async function saveUploadedFile(
 
   const baseUrl = env.BASE_URL.replace(/\/+$/, '');
   return `${baseUrl}/uploads/${filename}`;
+}
+
+/**
+ * Deletes a previously uploaded file from disk given its public URL.
+ * Silently succeeds if the file does not exist (idempotent).
+ */
+export async function deleteUploadedFile(fileUrl: string): Promise<void> {
+  const filename = basename(new URL(fileUrl).pathname);
+  const uploadsDir = resolve(process.cwd(), env.UPLOADS_DIR);
+  const filePath = join(uploadsDir, filename);
+
+  await new Promise<void>((resolve, reject) => {
+    unlink(filePath, (err) => {
+      if (err && err.code !== 'ENOENT') {
+        reject(err);
+      } else {
+        resolve();
+      }
+    });
+  });
 }

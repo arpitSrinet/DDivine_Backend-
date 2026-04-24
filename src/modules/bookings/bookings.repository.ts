@@ -101,6 +101,8 @@ export const bookingsRepository = {
       sessionId: string;
       childId?: string;
       price: Prisma.Decimal;
+      status: 'PENDING_PAYMENT' | 'GOVERNMENT_PAYMENT_PENDING';
+      paymentType: 'STRIPE' | 'GOVERNMENT';
     },
   ) {
     // Lock + fetch the session in a single query to prevent concurrent overbooking
@@ -128,7 +130,9 @@ export const bookingsRepository = {
         sessionId: data.sessionId,
         childId: data.childId,
         price: data.price,
-        status: 'PENDING_PAYMENT',
+        status: data.status,
+        paymentType: data.paymentType,
+        paymentStatus: 'PENDING',
       },
       include: bookingInclude,
     });

@@ -12,7 +12,9 @@ export function mapToChildResponse(child: {
   dateOfBirth: Date;
   gender: string;
   yearGroup: string;
+  avatarUrl: string | null;
   medicalConditions: string | null;
+  emergencyNote: string | null;
 }): IChildResponse {
   return {
     id: child.id,
@@ -21,6 +23,8 @@ export function mapToChildResponse(child: {
     dateOfBirth: child.dateOfBirth.toISOString().split('T')[0]!,
     gender: child.gender,
     yearGroup: child.yearGroup,
+    emergencyNote: child.emergencyNote ?? '',
+    ...(child.avatarUrl && { avatarUrl: child.avatarUrl }),
     ...(child.medicalConditions && { medicalConditions: child.medicalConditions }),
   };
 }

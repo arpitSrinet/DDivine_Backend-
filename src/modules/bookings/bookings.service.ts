@@ -3,6 +3,8 @@
  * @description Core booking engine. Enforces all domain invariants inside a serializable transaction.
  * @module src/modules/bookings/bookings.service
  */
+import type { PaymentType } from '@prisma/client';
+
 import { AppError } from '@/shared/errors/AppError.js';
 import { assertAgeEligible } from '@/shared/domain/invariants/assertAgeEligible.js';
 import { assertNoOverlap } from '@/shared/domain/invariants/assertNoOverlap.js';
@@ -49,6 +51,10 @@ export const bookingsService = {
   },
 
   async createBooking(userId: string, input: ICreateBooking): Promise<IBookingResponse> {
+    const paymentType: PaymentType = input.paymentType ?? 'STRIPE';
+    const initialStatus =
+      paymentType === 'GOVERNMENT' ? 'GOVERNMENT_PAYMENT_PENDING' : 'PENDING_PAYMENT';
+
     // --- Idempotency check ---
     if (input.idempotencyKey) {
       const cacheKey = `idempotency:booking:${input.idempotencyKey}`;
@@ -93,6 +99,8 @@ export const bookingsService = {
         sessionId: input.sessionId,
         childId: input.childId,
         price: session.price,
+        paymentType,
+        status: initialStatus,
       });
     });
 

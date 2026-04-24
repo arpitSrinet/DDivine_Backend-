@@ -37,6 +37,8 @@ export interface BookingConfirmationJobData {
   sessionDate: string;
   sessionTime: string;
   location: string;
+  paymentType: 'STRIPE' | 'GOVERNMENT';
+  bookingStatus: 'PENDING_PAYMENT' | 'GOVERNMENT_PAYMENT_PENDING' | 'CONFIRMED';
 }
 
 export interface PaymentConfirmationJobData {

@@ -25,6 +25,11 @@ export const UserProfileResponseSchema = z.object({
   town: z.string().optional(),
   county: z.string().optional(),
   postcode: z.string().optional(),
+  schoolName: z.string().optional(),
+  schoolType: z.string().optional(),
+  registrationNumber: z.string().optional(),
+  website: z.string().optional(),
+  adminFullName: z.string().optional(),
 });
 
 export const UpdateProfileSchema = z.object({
@@ -36,6 +41,11 @@ export const UpdateProfileSchema = z.object({
   town: z.string().optional(),
   county: z.string().optional(),
   postcode: z.string().optional(),
+  schoolName: z.string().min(1).optional(),
+  schoolType: z.string().min(1).optional(),
+  registrationNumber: z.string().min(1).optional(),
+  website: z.string().min(1).optional(),
+  adminFullName: z.string().min(1).optional(),
 });
 
 export const ChangePasswordSchema = z.object({

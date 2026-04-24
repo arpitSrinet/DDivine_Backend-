@@ -40,6 +40,7 @@ export const BookingIdParamSchema = z.object({
 export const CreateBookingSchema = z.object({
   sessionId: z.string().min(1),
   childId: z.string().min(1).optional(),
+  paymentType: z.enum(['STRIPE', 'GOVERNMENT']).optional(),
   idempotencyKey: z.string().optional(),
 });
 
@@ -75,6 +76,8 @@ export const BookingResponseSchema = z.object({
     .optional(),
   payment: z
     .object({
+      type: z.enum(['stripe', 'government']).optional(),
+      status: z.enum(['pending', 'paid', 'refunded', 'failed']).optional(),
       method: z.string().optional(),
       currency: z.string().optional(),
       subtotal: z.number().optional(),
@@ -87,6 +90,12 @@ export const BookingResponseSchema = z.object({
   receipt: z
     .object({
       downloadUrl: z.string().optional(),
+    })
+    .optional(),
+  invoice: z
+    .object({
+      downloadPdfUrl: z.string().optional(),
+      emailUrl: z.string().optional(),
     })
     .optional(),
 });

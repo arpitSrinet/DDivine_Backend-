@@ -6,6 +6,7 @@
  *   GET    /api/v1/users/me/children            → response: ChildResponse[]
  *   POST   /api/v1/users/me/children            → body: CreateChildSchema → response: ChildResponse
  *   PATCH  /api/v1/users/me/children/:childId   → body: UpdateChildSchema → response: ChildResponse
+ *   POST   /api/v1/users/me/children/:childId/avatar → multipart/form-data (field: avatar) → response: avatarUrl
  *   DELETE /api/v1/users/me/children/:childId   → response: 204
  *
  * @module src/modules/children/children.schema
@@ -25,6 +26,7 @@ export const CreateChildSchema = z.object({
   gender: z.string().min(1),
   yearGroup: z.string().min(1),
   medicalConditions: z.string().optional(),
+  emergencyNote: z.string().optional(),
   emergencyContacts: z.array(EmergencyContactSchema).min(1, 'At least one emergency contact is required'),
 });
 
@@ -35,6 +37,7 @@ export const UpdateChildSchema = z.object({
   gender: z.string().optional(),
   yearGroup: z.string().optional(),
   medicalConditions: z.string().optional(),
+  emergencyNote: z.string().optional(),
 });
 
 export const ChildIdParamSchema = z.object({
@@ -48,7 +51,9 @@ export const ChildResponseSchema = z.object({
   dateOfBirth: z.string(),
   gender: z.string(),
   yearGroup: z.string(),
+  avatarUrl: z.string().optional(),
   medicalConditions: z.string().optional(),
+  emergencyNote: z.string().optional(),
 });
 
 export type ICreateChild = z.infer<typeof CreateChildSchema>;

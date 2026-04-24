@@ -22,7 +22,9 @@ const childResponseSchema = {
     dateOfBirth: { type: 'string' },
     gender: { type: 'string' },
     yearGroup: { type: 'string' },
+    avatarUrl: { type: 'string' },
     medicalConditions: { type: 'string' },
+    emergencyNote: { type: 'string' },
   },
 };
 
@@ -55,6 +57,7 @@ async function childrenRoutes(app: FastifyInstance): Promise<void> {
           gender: { type: 'string' },
           yearGroup: { type: 'string' },
           medicalConditions: { type: 'string' },
+          emergencyNote: { type: 'string' },
           emergencyContacts: {
             type: 'array',
             minItems: 1,
@@ -94,6 +97,7 @@ async function childrenRoutes(app: FastifyInstance): Promise<void> {
           gender: { type: 'string' },
           yearGroup: { type: 'string' },
           medicalConditions: { type: 'string' },
+          emergencyNote: { type: 'string' },
         },
       },
       response: { 200: childResponseSchema },
@@ -118,6 +122,44 @@ async function childrenRoutes(app: FastifyInstance): Promise<void> {
     },
     preHandler: [...parentGuard, validate({ params: ChildIdParamSchema })],
     handler: childrenController.deleteChild,
+  });
+
+  app.post('/api/v1/users/me/children/:childId/avatar', {
+    schema: {
+      tags: ['Children'],
+      summary: 'Upload child profile avatar image (multipart/form-data, field: avatar)',
+      security: [{ BearerAuth: [] }],
+      consumes: ['multipart/form-data'],
+      params: {
+        type: 'object',
+        properties: { childId: { type: 'string' } },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: { avatarUrl: { type: 'string' } },
+        },
+      },
+    },
+    preHandler: [...parentGuard, validate({ params: ChildIdParamSchema })],
+    handler: childrenController.uploadAvatar,
+  });
+
+  app.delete('/api/v1/users/me/children/:childId/avatar', {
+    schema: {
+      tags: ['Children'],
+      summary: 'Remove child profile avatar',
+      security: [{ BearerAuth: [] }],
+      params: {
+        type: 'object',
+        properties: { childId: { type: 'string' } },
+      },
+      response: {
+        200: { type: 'object', properties: { message: { type: 'string' } } },
+      },
+    },
+    preHandler: [...parentGuard, validate({ params: ChildIdParamSchema })],
+    handler: childrenController.removeAvatar,
   });
 }
 

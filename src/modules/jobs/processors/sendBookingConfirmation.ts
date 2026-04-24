@@ -29,14 +29,27 @@ export async function sendBookingConfirmation(data: BookingConfirmationJobData):
 
   const transporter = getTransporter();
 
+  const isGovernment = data.paymentType === 'GOVERNMENT';
+  const isConfirmed = data.bookingStatus === 'CONFIRMED';
+  const heading = isConfirmed ? 'Booking Confirmed!' : 'Booking Created';
+  const subjectPrefix = isConfirmed ? 'Booking Confirmed' : 'Booking Created';
+  const paymentCopy = isConfirmed
+    ? '<p>Your booking is confirmed.</p>'
+    : isGovernment
+      ? `<p>Your booking has been created and is awaiting government payment.</p>
+         <p>We have generated an invoice for you to use for TFC / UC payment.</p>`
+      : `<p>Your booking has been created and is awaiting payment.</p>
+         <p>Please complete payment to confirm your booking.</p>`;
+
   await transporter.sendMail({
     from: env.EMAIL_FROM,
     to: data.userEmail,
-    subject: `Booking Confirmed — ${data.serviceName}`,
+    subject: `${subjectPrefix} — ${data.serviceName}`,
     html: `
-      <h2>Booking Confirmed!</h2>
+      <h2>${heading}</h2>
       <p>Hi ${data.userFirstName},</p>
-      <p>Your booking has been confirmed. Here are the details:</p>
+      ${paymentCopy}
+      <p>Here are the details:</p>
       <table>
         <tr><td><strong>Service:</strong></td><td>${data.serviceName}</td></tr>
         <tr><td><strong>Date:</strong></td><td>${data.sessionDate}</td></tr>

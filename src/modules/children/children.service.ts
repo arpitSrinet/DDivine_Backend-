@@ -3,9 +3,12 @@
  * @description Business logic for children management. Enforces domain invariants.
  * @module src/modules/children/children.service
  */
+import type { MultipartFile } from '@fastify/multipart';
+
 import { AppError } from '@/shared/errors/AppError.js';
 import { assertEmergencyContactExists } from '@/shared/domain/invariants/assertEmergencyContactExists.js';
 import { validateDateOfBirth } from '@/shared/domain/value-objects/DateOfBirth.js';
+import { deleteUploadedFile, saveUploadedFile } from '@/shared/utils/fileUpload.js';
 
 import { mapToChildResponse } from './children.domain.js';
 import { childrenRepository } from './children.repository.js';
@@ -29,6 +32,7 @@ export const childrenService = {
       gender: input.gender,
       yearGroup: input.yearGroup,
       medicalConditions: input.medicalConditions,
+      emergencyNote: input.emergencyNote,
       emergencyContacts: input.emergencyContacts,
     });
 
@@ -56,6 +60,7 @@ export const childrenService = {
       ...(input.gender && { gender: input.gender }),
       ...(input.yearGroup && { yearGroup: input.yearGroup }),
       ...(input.medicalConditions !== undefined && { medicalConditions: input.medicalConditions }),
+      ...(input.emergencyNote !== undefined && { emergencyNote: input.emergencyNote }),
     });
 
     return mapToChildResponse(updated);
@@ -67,5 +72,36 @@ export const childrenService = {
       throw new AppError('ACCOUNT_NOT_FOUND', 'Child not found.', 404);
     }
     await childrenRepository.softDeleteById(childId);
+  },
+
+  async uploadAvatar(
+    userId: string,
+    childId: string,
+    file: MultipartFile,
+  ): Promise<{ avatarUrl: string }> {
+    const existing = await childrenRepository.findByIdAndUserId(childId, userId);
+    if (!existing) {
+      throw new AppError('ACCOUNT_NOT_FOUND', 'Child not found.', 404);
+    }
+
+    const avatarUrl = await saveUploadedFile(file, 'avatar');
+    await childrenRepository.updateAvatarUrlById(childId, avatarUrl);
+
+    return { avatarUrl };
+  },
+
+  async removeAvatar(userId: string, childId: string): Promise<{ message: string }> {
+    const existing = await childrenRepository.findByIdAndUserId(childId, userId);
+    if (!existing) {
+      throw new AppError('ACCOUNT_NOT_FOUND', 'Child not found.', 404);
+    }
+    if (!existing.avatarUrl) {
+      throw new AppError('NOT_FOUND', 'No avatar to remove.', 404);
+    }
+
+    await deleteUploadedFile(existing.avatarUrl);
+    await childrenRepository.clearAvatarUrlById(childId);
+
+    return { message: 'Avatar removed successfully.' };
   },
 };

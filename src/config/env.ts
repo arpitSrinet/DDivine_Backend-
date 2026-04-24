@@ -27,6 +27,17 @@ const envSchema = z.object({
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
 
+  // Xero OAuth — optional at startup, required by Xero endpoints
+  XERO_CLIENT_ID: z.string().optional(),
+  XERO_CLIENT_SECRET: z.string().optional(),
+  XERO_REDIRECT_URI: z.string().url().optional(),
+  XERO_SCOPES: z.string().default(
+    'openid profile email accounting.transactions accounting.settings offline_access',
+  ),
+  XERO_PAYMENT_ACCOUNT_CODE: z.string().optional(),
+  // Optional: poll Xero to sync government booking payments (seconds). 0/undefined disables.
+  XERO_GOV_SYNC_INTERVAL_SECONDS: z.coerce.number().int().min(0).optional(),
+
   // Email / SMTP — optional at startup, required at runtime for Phase 6 email sending
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().positive().optional(),

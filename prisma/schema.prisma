@@ -31,6 +31,11 @@ enum PaymentStatus {
   FAILED
 }
 
+enum PaymentType {
+  STRIPE
+  GOVERNMENT
+}
+
 enum EventBookingStatus {
   DRAFT
   ATTENDEE_COMPLETED
@@ -85,6 +90,12 @@ enum ContactInquiryStatus {
   RESOLVED
 }
 
+enum LeagueGameRequestStatus {
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
 // ─── User ─────────────────────────────────────────────────
 
 model User {
@@ -131,7 +142,9 @@ model Child {
   dateOfBirth        DateTime
   gender             String
   yearGroup          String   @default("Not specified")
+  avatarUrl          String?
   medicalConditions  String?
+  emergencyNote      String?
   schoolName         String?
   firstAidPermission String?
   createdAt          DateTime @default(now())
@@ -214,6 +227,11 @@ model Booking {
   childId     String?
   sessionId   String
   status      BookingStatus @default(PENDING)
+  paymentType PaymentType   @default(STRIPE)
+  paymentStatus PaymentStatus @default(PENDING)
+  xeroInvoiceId String?     @unique
+  xeroInvoiceStatus String?
+  xeroInvoiceSyncedAt DateTime?
   price       Decimal       @db.Decimal(10, 2)
   cancelledAt DateTime?
   createdAt   DateTime      @default(now())
@@ -257,6 +275,18 @@ model Invoice {
   createdAt     DateTime @default(now())
 
   payment Payment @relation(fields: [paymentId], references: [id])
+}
+
+model XeroConnection {
+  id           String   @id
+  accessToken  String
+  refreshToken String
+  expiresAt    DateTime
+  tokenType    String   @default("Bearer")
+  scope        String?
+  tenantId     String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
 
 // ─── Refund ───────────────────────────────────────────────
@@ -333,6 +363,9 @@ model Match {
   location   String?
   photoId    String?
   status     MatchStatus @default(SCHEDULED)
+  approvedAt DateTime?
+  approvedByAdminId String?
+  approvedViaLeagueGameRequestId String?
   createdAt  DateTime    @default(now())
   updatedAt  DateTime    @updatedAt
 
@@ -646,6 +679,30 @@ model ContactInquiry {
   updatedAt   DateTime             @updatedAt
 
   @@index([status, submittedAt])
+}
+
+model LeagueGameRequest {
+  id           String                  @id @default(cuid())
+  status       LeagueGameRequestStatus @default(SUBMITTED)
+  yearGroup    String
+  playingAt    String
+  gameDate     DateTime
+  gameTime     String
+  addressLine1 String
+  addressLine2 String?
+  town         String
+  postCode     String
+  ip           String?
+  userAgent    String?
+  reviewedAt   DateTime?
+  reviewedByAdminId String?
+  rejectionReason String?
+  approvedMatchId String?
+  submittedAt  DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+
+  @@index([status, submittedAt])
+  @@index([gameDate])
 }
 
 // ─── Child performance (admin-only records) ───────────────
