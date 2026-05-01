@@ -6,8 +6,10 @@
 import type { CalendarEventType, Prisma } from '@prisma/client';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
+import nodemailer from 'nodemailer';
 import { z } from 'zod';
 
+import { env } from '@/config/env.js';
 import { AppError } from '@/shared/errors/AppError.js';
 import { prisma } from '@/shared/infrastructure/prisma.js';
 import { authMiddleware } from '@/shared/middleware/auth.middleware.js';
@@ -33,6 +35,7 @@ const TYPE_TO_API: Record<CalendarEventType, string> = {
 };
 
 const EventIdParam = z.object({ eventId: z.string().min(1) });
+const UK_POSTCODE_REGEX = /\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i;
 
 const CreateEventSchema = z.object({
   title: z.string().min(1),
@@ -79,6 +82,130 @@ const UpdateEventSchema = CreateEventSchema.partial().extend({
 });
 
 const VisibilitySchema = z.object({ isPublic: z.boolean() });
+const SendRadiusEmailBodySchema = z.object({
+  radiusKm: z.coerce.number().positive(),
+  centerPostcode: z
+    .string()
+    .trim()
+    .max(16)
+    .nullish()
+    .transform((value) => (value && value.length > 0 ? value : undefined)),
+});
+
+function getTransporter() {
+  return nodemailer.createTransport({
+    host: env.SMTP_HOST,
+    port: env.SMTP_PORT ?? 587,
+    secure: (env.SMTP_PORT ?? 587) === 465,
+    auth: env.SMTP_USER ? { user: env.SMTP_USER, pass: env.SMTP_PASS } : undefined,
+  });
+}
+
+function normalizePostcode(postcode: string): string {
+  return postcode.trim().toUpperCase().replace(/\s+/g, '');
+}
+
+function extractPostcode(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const match = raw.match(UK_POSTCODE_REGEX);
+  if (!match?.[1]) return null;
+  return normalizePostcode(match[1]);
+}
+
+async function geocodePostcode(postcode: string): Promise<{ latitude: number; longitude: number } | null> {
+  const response = await fetch(`https://api.postcodes.io/postcodes/${encodeURIComponent(postcode)}`);
+  if (!response.ok) return null;
+  const payload = (await response.json()) as {
+    status?: number;
+    result?: { latitude?: number | null; longitude?: number | null } | null;
+  };
+  const latitude = payload.result?.latitude;
+  const longitude = payload.result?.longitude;
+  if (typeof latitude !== 'number' || typeof longitude !== 'number') return null;
+  return { latitude, longitude };
+}
+
+async function geocodeAddress(query: string): Promise<{ latitude: number; longitude: number } | null> {
+  const response = await fetch(
+    `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`,
+    {
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'DDivine-Backend/1.0',
+      },
+    },
+  );
+  if (!response.ok) return null;
+  const payload = (await response.json()) as Array<{ lat?: string; lon?: string }>;
+  const first = payload[0];
+  if (!first?.lat || !first?.lon) return null;
+  const latitude = Number(first.lat);
+  const longitude = Number(first.lon);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  return { latitude, longitude };
+}
+
+async function geocodePostcodesBulk(postcodes: string[]): Promise<Map<string, { latitude: number; longitude: number }>> {
+  const map = new Map<string, { latitude: number; longitude: number }>();
+  const rawByNormalized = new Map<string, string>();
+  for (const raw of postcodes) {
+    const normalized = normalizePostcode(raw);
+    if (!normalized) continue;
+    if (!rawByNormalized.has(normalized)) {
+      rawByNormalized.set(normalized, raw.trim());
+    }
+  }
+  const unique = [...rawByNormalized.keys()];
+  const chunkSize = 100;
+
+  for (let i = 0; i < unique.length; i += chunkSize) {
+    const chunk = unique.slice(i, i + chunkSize);
+    const response = await fetch('https://api.postcodes.io/postcodes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ postcodes: chunk }),
+    });
+    if (!response.ok) continue;
+    const payload = (await response.json()) as {
+      status?: number;
+      result?: Array<{
+        query?: string;
+        result?: { latitude?: number | null; longitude?: number | null } | null;
+      }>;
+    };
+    for (const item of payload.result ?? []) {
+      const query = item.query ? normalizePostcode(item.query) : null;
+      const latitude = item.result?.latitude;
+      const longitude = item.result?.longitude;
+      if (!query || typeof latitude !== 'number' || typeof longitude !== 'number') continue;
+      map.set(query, { latitude, longitude });
+    }
+  }
+
+  // Fallback for non-UK or unresolved postcodes (e.g. PIN/ZIP not covered by postcodes.io).
+  for (const normalized of unique) {
+    if (map.has(normalized)) continue;
+    const fallbackQuery = rawByNormalized.get(normalized) ?? normalized;
+    const geo = await geocodeAddress(fallbackQuery);
+    if (geo) {
+      map.set(normalized, geo);
+    }
+  }
+
+  return map;
+}
+
+function distanceKm(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const toRad = (degrees: number) => (degrees * Math.PI) / 180;
+  const earthRadiusKm = 6371;
+  const dLat = toRad(bLat - aLat);
+  const dLng = toRad(bLng - aLng);
+  const x =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const y = 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+  return earthRadiusKm * y;
+}
 
 function mapEvent(e: {
   id: string;
@@ -332,6 +459,230 @@ async function adminEventsRoutes(app: FastifyInstance): Promise<void> {
         data: { isPublic: request.body.isPublic },
       });
       await reply.status(200).send({ id: e.id, isPublic: e.isPublic });
+    },
+  });
+
+  app.post('/api/v1/admin/events/:eventId/preview-radius-email', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Preview schools matched for radius email',
+      security: [{ BearerAuth: [] }],
+    },
+    preHandler: [...adminGuard, validate({ params: EventIdParam, body: SendRadiusEmailBodySchema })],
+    handler: async (
+      request: FastifyRequest<{
+        Params: z.infer<typeof EventIdParam>;
+        Body: z.infer<typeof SendRadiusEmailBodySchema>;
+      }>,
+      reply: FastifyReply,
+    ) => {
+      const event = await prisma.calendarEvent.findUnique({
+        where: { id: request.params.eventId },
+        select: {
+          id: true,
+          location: true,
+        },
+      });
+      if (!event) throw new AppError('ACCOUNT_NOT_FOUND', 'Event not found.', 404);
+
+      const fallbackPostcode = extractPostcode(event.location);
+      const centerInput = (request.body.centerPostcode ?? fallbackPostcode ?? event.location ?? '').trim();
+      if (!centerInput) {
+        throw new AppError(
+          'VALIDATION_ERROR',
+          'Center postcode or location is required to calculate radius.',
+          422,
+        );
+      }
+
+      const normalizedCenterPostcode = normalizePostcode(centerInput);
+      const center =
+        (await geocodePostcode(normalizedCenterPostcode)) ?? (await geocodeAddress(centerInput));
+      if (!center) {
+        throw new AppError('VALIDATION_ERROR', 'Could not resolve the selected center postcode.', 422);
+      }
+
+      const schools = await prisma.user.findMany({
+        where: {
+          role: 'SCHOOL',
+          schoolApprovalStatus: 'APPROVED',
+          postcode: { not: null },
+        },
+        select: {
+          email: true,
+          postcode: true,
+        },
+      });
+
+      const geoMap = await geocodePostcodesBulk(schools.map((school) => school.postcode ?? ''));
+      const recipients: string[] = [];
+      const seen = new Set<string>();
+      for (const school of schools) {
+        const email = school.email.trim();
+        const postcode = school.postcode ? normalizePostcode(school.postcode) : '';
+        if (!postcode || !email) continue;
+        const geo = geoMap.get(postcode);
+        if (!geo) continue;
+        if (distanceKm(center.latitude, center.longitude, geo.latitude, geo.longitude) > request.body.radiusKm) {
+          continue;
+        }
+        const dedupeKey = email.toLowerCase();
+        if (seen.has(dedupeKey)) continue;
+        seen.add(dedupeKey);
+        recipients.push(email);
+      }
+
+      await reply.status(200).send({
+        data: {
+          eventId: event.id,
+          radiusKm: request.body.radiusKm,
+          centerPostcode: normalizedCenterPostcode,
+          recipients: recipients.length,
+        },
+      });
+    },
+  });
+
+  app.post('/api/v1/admin/events/:eventId/send-radius-email', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Send event email to approved schools within a postcode radius',
+      security: [{ BearerAuth: [] }],
+    },
+    preHandler: [...adminGuard, validate({ params: EventIdParam, body: SendRadiusEmailBodySchema })],
+    handler: async (
+      request: FastifyRequest<{
+        Params: z.infer<typeof EventIdParam>;
+        Body: z.infer<typeof SendRadiusEmailBodySchema>;
+      }>,
+      reply: FastifyReply,
+    ) => {
+      if (!env.SMTP_HOST) {
+        throw new AppError('EMAIL_NOT_CONFIGURED', 'Email service is not configured.', 500);
+      }
+
+      const event = await prisma.calendarEvent.findUnique({
+        where: { id: request.params.eventId },
+        select: {
+          id: true,
+          title: true,
+          location: true,
+          date: true,
+          time: true,
+          startDate: true,
+          endDate: true,
+          startTime: true,
+          endTime: true,
+        },
+      });
+      if (!event) throw new AppError('ACCOUNT_NOT_FOUND', 'Event not found.', 404);
+
+      const fallbackPostcode = extractPostcode(event.location);
+      const centerInput = (request.body.centerPostcode ?? fallbackPostcode ?? event.location ?? '').trim();
+      if (!centerInput) {
+        throw new AppError(
+          'VALIDATION_ERROR',
+          'Center postcode or location is required to calculate radius.',
+          422,
+        );
+      }
+
+      const normalizedCenterPostcode = normalizePostcode(centerInput);
+      const center =
+        (await geocodePostcode(normalizedCenterPostcode)) ?? (await geocodeAddress(centerInput));
+      if (!center) {
+        throw new AppError('VALIDATION_ERROR', 'Could not resolve the selected center postcode.', 422);
+      }
+
+      const schools = await prisma.user.findMany({
+        where: {
+          role: 'SCHOOL',
+          schoolApprovalStatus: 'APPROVED',
+          postcode: { not: null },
+        },
+        select: {
+          email: true,
+          postcode: true,
+        },
+      });
+
+      const geoMap = await geocodePostcodesBulk(schools.map((school) => school.postcode ?? ''));
+      const recipients: string[] = [];
+      const seen = new Set<string>();
+      for (const school of schools) {
+        const email = school.email.trim();
+        const postcode = school.postcode ? normalizePostcode(school.postcode) : '';
+        if (!postcode || !email) continue;
+        const geo = geoMap.get(postcode);
+        if (!geo) continue;
+        if (distanceKm(center.latitude, center.longitude, geo.latitude, geo.longitude) > request.body.radiusKm) {
+          continue;
+        }
+        const dedupeKey = email.toLowerCase();
+        if (seen.has(dedupeKey)) continue;
+        seen.add(dedupeKey);
+        recipients.push(email);
+      }
+
+      const dateRangeLabel =
+        event.startDate && event.endDate
+          ? `${event.startDate.toISOString().split('T')[0]} to ${event.endDate.toISOString().split('T')[0]}`
+          : event.date.toISOString().split('T')[0];
+      const timeLabel =
+        event.startTime && event.endTime ? `${event.startTime} - ${event.endTime}` : event.time;
+      const subject = `New Event: ${event.title}`;
+      const html = `
+        <div>
+          <p>Hello School Partner,</p>
+          <p>We have a new event that may interest your school:</p>
+          <table style="border-collapse: collapse;">
+            <tr><td style="padding: 4px 8px 4px 0;"><strong>Event:</strong></td><td>${event.title}</td></tr>
+            <tr><td style="padding: 4px 8px 4px 0;"><strong>Date:</strong></td><td>${dateRangeLabel}</td></tr>
+            <tr><td style="padding: 4px 8px 4px 0;"><strong>Time:</strong></td><td>${timeLabel}</td></tr>
+            <tr><td style="padding: 4px 8px 4px 0;"><strong>Location:</strong></td><td>${event.location}</td></tr>
+          </table>
+          <p style="margin-top: 16px;">This email was sent to approved schools within ${request.body.radiusKm} km of ${normalizedCenterPostcode}.</p>
+          <p style="margin-top: 20px;">- DDivine Admin Team</p>
+        </div>
+      `;
+
+      let sent = 0;
+      if (recipients.length > 0) {
+        const transporter = getTransporter();
+        const batchSize = 50;
+        for (let i = 0; i < recipients.length; i += batchSize) {
+          const batch = recipients.slice(i, i + batchSize);
+          await transporter.sendMail({
+            from: env.EMAIL_FROM,
+            to: env.EMAIL_FROM,
+            bcc: batch.join(','),
+            subject,
+            html,
+          });
+          sent += batch.length;
+        }
+      }
+
+      await prisma.schoolGroupEmailLog.create({
+        data: {
+          subject,
+          message: `Event ${event.id} | radius=${request.body.radiusKm}km | center=${normalizedCenterPostcode}`,
+          targetStatus: `radius-${request.body.radiusKm}km`,
+          recipientsCount: recipients.length,
+          sentCount: sent,
+          sentByAdminId: request.user!.id,
+        },
+      });
+
+      await reply.status(200).send({
+        data: {
+          eventId: event.id,
+          radiusKm: request.body.radiusKm,
+          centerPostcode: normalizedCenterPostcode,
+          recipients: recipients.length,
+          sent,
+        },
+      });
     },
   });
 }

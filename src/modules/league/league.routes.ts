@@ -1,6 +1,6 @@
 /**
  * @file league.routes.ts
- * @description Fastify route registration for league endpoints. Public — no auth required.
+ * @description Fastify route registration for league endpoints.
  * @module src/modules/league/league.routes
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -9,7 +9,10 @@ import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 
 import { prisma } from '@/shared/infrastructure/prisma.js';
+import { authMiddleware } from '@/shared/middleware/auth.middleware.js';
 import { rateLimiter } from '@/shared/middleware/rateLimiter.js';
+import { requireRole } from '@/shared/middleware/rbac.middleware.js';
+import { requireApprovedSchool } from '@/shared/middleware/school-approval.middleware.js';
 import { leagueController } from './league.controller.js';
 
 const tableRowSchema = {
@@ -128,7 +131,8 @@ async function leagueRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/v1/league/game-requests', {
     schema: {
       tags: ['League'],
-      summary: 'Submit school league game request (public — no auth required)',
+      summary: 'Submit school league game request',
+      security: [{ BearerAuth: [] }],
       body: {
         type: 'object',
         required: ['yearGroup', 'playingAt', 'gameDate', 'gameTime', 'addressLine1', 'town', 'postCode'],
@@ -165,9 +169,22 @@ async function leagueRoutes(app: FastifyInstance): Promise<void> {
             },
           },
         },
+        403: {
+          type: 'object',
+          properties: {
+            code: { type: 'string', enum: ['SCHOOL_NOT_APPROVED'] },
+            message: { type: 'string' },
+            status: { type: 'integer' },
+          },
+        },
       },
     },
-    preHandler: [rateLimiter({ max: 5, windowSeconds: 10 * 60, keyPrefix: 'league-game-request' })],
+    preHandler: [
+      authMiddleware,
+      requireRole('SCHOOL'),
+      requireApprovedSchool,
+      rateLimiter({ max: 5, windowSeconds: 10 * 60, keyPrefix: 'league-game-request' }),
+    ],
     handler: async (request: FastifyRequest, reply: FastifyReply) => {
       const parsed = LeagueGameRequestSchema.safeParse(request.body ?? {});
       if (!parsed.success) {

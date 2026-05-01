@@ -53,6 +53,14 @@ const baseUserFields = {
   website: null,
   schoolLogoFileName: null,
   verificationDocumentFileName: null,
+  isSchoolApproved: false,
+  schoolApprovalStatus: 'PENDING' as const,
+  schoolApprovedAt: null,
+  schoolRejectedAt: null,
+  schoolLastReviewedAt: null,
+  schoolReviewedByAdminId: null,
+  schoolApprovalReason: null,
+  isActive: true,
 };
 
 describe('authService', () => {

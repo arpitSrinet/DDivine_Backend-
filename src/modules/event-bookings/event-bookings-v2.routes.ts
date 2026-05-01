@@ -22,9 +22,11 @@ import PDFDocument from 'pdfkit';
 import { z } from 'zod';
 
 import { env } from '@/config/env.js';
+import { xeroService } from '@/modules/xero/xero.service.js';
 import { assertAgeEligible } from '@/shared/domain/invariants/assertAgeEligible.js';
 import { AppError } from '@/shared/errors/AppError.js';
 import { prisma } from '@/shared/infrastructure/prisma.js';
+import { logger } from '@/shared/infrastructure/logger.js';
 import { authMiddleware } from '@/shared/middleware/auth.middleware.js';
 import { requireRole } from '@/shared/middleware/rbac.middleware.js';
 import { validate } from '@/shared/middleware/validate.js';
@@ -1133,6 +1135,24 @@ async function eventBookingsV2Routes(app: FastifyInstance): Promise<void> {
         if (!recovered) throw error;
         booking = recovered;
       }
+
+      // Trigger Xero work in the background so checkout confirmation is not blocked by
+      // slow third-party calls (prevents frontend timeout on first return from Stripe).
+      void (async () => {
+        try {
+          await xeroService.createInvoiceForEventBooking(booking.id);
+          // TFC flow: email the Xero invoice so the customer can claim TFC reimbursement.
+          if (booking.paymentMethod === 'TAX_FREE_CHILDCARE') {
+            await xeroService.emailInvoiceForEventBooking({
+              bookingId: booking.id,
+              requesterUserId: userId,
+              isAdmin: true,
+            });
+          }
+        } catch (err) {
+          logger.error({ bookingId: booking.id, err }, 'event-booking.confirm: failed to create Xero invoice');
+        }
+      })();
 
       await reply.status(200).send({ data: mapBookingConfirmation(booking) });
     },

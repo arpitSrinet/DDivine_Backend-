@@ -43,19 +43,22 @@ async function adminDashboardRoutes(app: FastifyInstance): Promise<void> {
 
       const [
         totalCustomers,
-        totalBookings,
+        sessionBookingsCount,
+        eventBookingsCount,
         revenueResult,
         activeSessions,
         pendingRefunds,
         upcomingEvents,
         totalMatchesPlayed,
-        recentBookingRows,
+        recentSessionBookingRows,
+        recentEventBookingRows,
         upcomingEventRows,
         recentMatchRows,
       ] = await Promise.all([
         // customers = non-admin users
         prisma.user.count({ where: { role: { in: ['PARENT', 'SCHOOL'] } } }),
         prisma.booking.count(),
+        prisma.calendarEventBooking.count(),
         // revenue — sum of paid payments (stored as Decimal, convert to pence)
         prisma.payment.aggregate({
           _sum: { amount: true },
@@ -67,7 +70,7 @@ async function adminDashboardRoutes(app: FastifyInstance): Promise<void> {
           where: { isPublic: true, date: { gte: todayStart } },
         }),
         prisma.match.count({ where: { status: 'COMPLETED' } }),
-        // recent bookings with user + child + session+service
+        // recent session bookings with user + child + session/service
         prisma.booking.findMany({
           take: 10,
           orderBy: { createdAt: 'desc' },
@@ -78,6 +81,30 @@ async function adminDashboardRoutes(app: FastifyInstance): Promise<void> {
               select: {
                 date: true,
                 service: { select: { title: true } },
+              },
+            },
+          },
+        }),
+        // recent event bookings (for unified "recent bookings" on dashboard)
+        prisma.calendarEventBooking.findMany({
+          take: 10,
+          orderBy: { createdAt: 'desc' },
+          include: {
+            user: { select: { firstName: true, lastName: true } },
+            items: {
+              take: 1,
+              orderBy: { createdAt: 'asc' },
+              include: {
+                child: { select: { firstName: true, lastName: true } },
+                slot: {
+                  include: {
+                    eventDate: {
+                      include: {
+                        event: { select: { title: true } },
+                      },
+                    },
+                  },
+                },
               },
             },
           },
@@ -104,6 +131,44 @@ async function adminDashboardRoutes(app: FastifyInstance): Promise<void> {
       const totalRevenuePence = Math.round(
         (revenueResult._sum.amount?.toNumber() ?? 0) * 100,
       );
+      const totalBookings = sessionBookingsCount + eventBookingsCount;
+
+      const recentBookings = [
+        ...recentSessionBookingRows.map((b) => ({
+          id: b.id,
+          customerName: `${b.user.firstName} ${b.user.lastName}`.trim(),
+          childName: b.child ? `${b.child.firstName} ${b.child.lastName}`.trim() : '',
+          sessionTitle: b.session.service.title,
+          date: b.session.date.toISOString().split('T')[0],
+          status: BOOKING_STATUS_MAP[b.status] ?? b.status.toLowerCase(),
+          pricePence: Math.round(b.price.toNumber() * 100),
+          createdAt: b.createdAt,
+        })),
+        ...recentEventBookingRows.map((b) => {
+          const firstItem = b.items[0];
+          const fallbackName = `${b.user.firstName} ${b.user.lastName}`.trim();
+          const customerName = b.fullName?.trim() ? b.fullName.trim() : fallbackName;
+          const childName = firstItem?.child
+            ? `${firstItem.child.firstName} ${firstItem.child.lastName}`.trim()
+            : '';
+          const sessionTitle = firstItem?.slot.eventDate.event.title ?? 'Event booking';
+          const bookingDate = firstItem?.slot.eventDate.date ?? b.createdAt;
+          const totalPaidPence = Math.round((b.totalPaid?.toNumber() ?? 0) * 100);
+
+          return {
+            id: b.id,
+            customerName,
+            childName,
+            sessionTitle,
+            date: bookingDate.toISOString().split('T')[0],
+            status: BOOKING_STATUS_MAP[b.status] ?? b.status.toLowerCase(),
+            pricePence: totalPaidPence,
+            createdAt: b.createdAt,
+          };
+        }),
+      ]
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+        .slice(0, 10);
 
       await reply.status(200).send({
         stats: {
@@ -115,16 +180,14 @@ async function adminDashboardRoutes(app: FastifyInstance): Promise<void> {
           totalRevenuePence,
           pendingRefunds,
         },
-        recentBookings: recentBookingRows.map((b) => ({
+        recentBookings: recentBookings.map((b) => ({
           id: b.id,
-          customerName: `${b.user.firstName} ${b.user.lastName}`,
-          childName: b.child
-            ? `${b.child.firstName} ${b.child.lastName}`
-            : '',
-          sessionTitle: b.session.service.title,
-          date: b.session.date.toISOString().split('T')[0],
-          status: BOOKING_STATUS_MAP[b.status] ?? b.status.toLowerCase(),
-          pricePence: Math.round(b.price.toNumber() * 100),
+          customerName: b.customerName,
+          childName: b.childName,
+          sessionTitle: b.sessionTitle,
+          date: b.date,
+          status: b.status,
+          pricePence: b.pricePence,
         })),
         upcomingEvents: upcomingEventRows.map((e) => ({
           id: e.id,

@@ -1,11 +1,10 @@
 /**
  * @file admin-bookings.routes.ts
- * @description Admin bookings management (Event bookings v2) — list, filter, view.
- * NOTE: This module now surfaces CalendarEventBooking-based bookings (events checkout),
- * not coaching Session bookings. Requires ADMIN role.
+ * @description Admin bookings management (session + event bookings) — list, filter, view.
+ * Requires ADMIN role.
  * @module src/modules/admin-bookings/admin-bookings.routes
  */
-import type { Prisma } from '@prisma/client';
+import type { BookingStatus, Prisma } from '@prisma/client';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 import { z } from 'zod';
@@ -19,6 +18,9 @@ import { validate } from '@/shared/middleware/validate.js';
 const adminGuard = [authMiddleware, requireRole('ADMIN')];
 
 const BookingIdParamSchema = z.object({ bookingId: z.string().min(1) });
+const AdminBookingUpdateBodySchema = z.object({
+  status: z.string().min(1),
+});
 
 const statusMap: Record<string, string> = {
   PENDING: 'pending_payment',
@@ -29,6 +31,29 @@ const statusMap: Record<string, string> = {
   CANCELLED: 'cancelled',
 };
 
+const inputStatusToPrismaStatus: Record<string, BookingStatus> = {
+  PENDING: 'PENDING',
+  PENDING_PAYMENT: 'PENDING_PAYMENT',
+  GOVERNMENT_PAYMENT_PENDING: 'GOVERNMENT_PAYMENT_PENDING',
+  CONFIRMED: 'CONFIRMED',
+  REFUNDED: 'REFUNDED',
+  CANCELLED: 'CANCELLED',
+  pending_payment: 'PENDING_PAYMENT',
+  government_payment_pending: 'GOVERNMENT_PAYMENT_PENDING',
+  confirmed: 'CONFIRMED',
+  refunded: 'REFUNDED',
+  cancelled: 'CANCELLED',
+};
+
+function normalizeStatus(status?: string): BookingStatus | undefined {
+  if (!status) return undefined;
+  return inputStatusToPrismaStatus[status] ?? inputStatusToPrismaStatus[status.toUpperCase()];
+}
+
+function toApiStatus(status: BookingStatus): string {
+  return statusMap[status] ?? String(status).toLowerCase();
+}
+
 function toNum(value: unknown): number {
   if (value === null || value === undefined) return 0;
   if (typeof value === 'number') return value;
@@ -37,6 +62,10 @@ function toNum(value: unknown): number {
     return (value as { toNumber: () => number }).toNumber();
   }
   return Number(value) || 0;
+}
+
+function toPence(value: unknown): number {
+  return Math.round(toNum(value) * 100);
 }
 
 function toDateOnly(value: Date | null | undefined): string | undefined {
@@ -120,7 +149,7 @@ async function adminBookingsRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/v1/admin/bookings', {
     schema: {
       tags: ['Admin'],
-      summary: 'List all EVENT bookings (CalendarEventBooking) with optional filters and pagination',
+      summary: 'List all bookings (session + event) with optional filters and pagination',
       security: [{ BearerAuth: [] }],
       querystring: {
         type: 'object',
@@ -137,7 +166,12 @@ async function adminBookingsRoutes(app: FastifyInstance): Promise<void> {
         200: {
           type: 'object',
           properties: {
-            data: { type: 'array', items: { type: 'object' } },
+            data: {
+              type: 'array',
+              // Keep list rows flexible; serializer was stripping fields to {}
+              // when no explicit item properties were declared.
+              items: { type: 'object', additionalProperties: true },
+            },
             page: { type: 'integer' },
             pageSize: { type: 'integer' },
             total: { type: 'integer' },
@@ -155,10 +189,11 @@ async function adminBookingsRoutes(app: FastifyInstance): Promise<void> {
     ) => {
       const { status, q, userId, eventId, page = 1 } = request.query;
       const pageSize = Math.min(request.query.pageSize ?? 20, 100);
+      const normalizedStatus = normalizeStatus(status);
       const skip = (page - 1) * pageSize;
 
-      const where = {
-        ...(status && { status: status as any }),
+      const eventWhere: Prisma.CalendarEventBookingWhereInput = {
+        ...(normalizedStatus && { status: normalizedStatus }),
         ...(userId && { userId }),
         ...(eventId && {
           items: { some: { eventId } },
@@ -168,17 +203,30 @@ async function adminBookingsRoutes(app: FastifyInstance): Promise<void> {
             { bookingReference: { contains: q, mode: 'insensitive' as const } },
             { email: { contains: q, mode: 'insensitive' as const } },
             { fullName: { contains: q, mode: 'insensitive' as const } },
-            // fallback to auth user profile fields
             { user: { email: { contains: q, mode: 'insensitive' as const } } },
             { user: { firstName: { contains: q, mode: 'insensitive' as const } } },
             { user: { lastName: { contains: q, mode: 'insensitive' as const } } },
           ],
         }),
-      } as const;
+      };
 
-      const [bookings, total] = await Promise.all([
+      const sessionWhere: Prisma.BookingWhereInput = {
+        ...(normalizedStatus && { status: normalizedStatus }),
+        ...(userId && { userId }),
+        ...(q && {
+          OR: [
+            { id: { contains: q, mode: 'insensitive' as const } },
+            { user: { email: { contains: q, mode: 'insensitive' as const } } },
+            { user: { firstName: { contains: q, mode: 'insensitive' as const } } },
+            { user: { lastName: { contains: q, mode: 'insensitive' as const } } },
+          ],
+        }),
+      };
+
+      const includeSessionBookings = !eventId;
+      const [eventBookings, eventTotal, sessionBookings, sessionTotal] = await Promise.all([
         prisma.calendarEventBooking.findMany({
-          where,
+          where: eventWhere,
           include: {
             user: { select: { id: true, email: true, firstName: true, lastName: true } },
             items: {
@@ -194,15 +242,33 @@ async function adminBookingsRoutes(app: FastifyInstance): Promise<void> {
               },
             },
           },
-          skip,
-          take: pageSize,
           orderBy: { createdAt: 'desc' },
         }),
-        prisma.calendarEventBooking.count({ where }),
+        prisma.calendarEventBooking.count({ where: eventWhere }),
+        includeSessionBookings
+          ? prisma.booking.findMany({
+              where: sessionWhere,
+              include: {
+                user: { select: { id: true, email: true, firstName: true, lastName: true } },
+                session: {
+                  select: {
+                    id: true,
+                    date: true,
+                    time: true,
+                    location: true,
+                    service: { select: { title: true } },
+                  },
+                },
+                payment: { select: { amount: true, currency: true } },
+              },
+              orderBy: { createdAt: 'desc' },
+            })
+          : Promise.resolve([]),
+        includeSessionBookings ? prisma.booking.count({ where: sessionWhere }) : Promise.resolve(0),
       ]);
 
-      await reply.status(200).send({
-        data: bookings.map((b) => ({
+      const rows = [
+        ...eventBookings.map((b) => ({
           bookingId: b.id,
           bookingReference: b.bookingReference ?? b.id.toUpperCase().slice(0, 8),
           status: statusMap[b.status] ?? String(b.status).toLowerCase(),
@@ -216,11 +282,11 @@ async function adminBookingsRoutes(app: FastifyInstance): Promise<void> {
           payment: {
             method: b.paymentMethod?.toLowerCase() ?? undefined,
             currency: b.currency,
-            subtotal: toNum(b.subtotal),
-            addonsTotal: toNum(b.addonsTotal),
-            discountTotal: toNum(b.discountTotal),
-            serviceFee: toNum(b.serviceFee),
-            totalPaid: toNum(b.totalPaid),
+            subtotal: toPence(b.subtotal),
+            addonsTotal: toPence(b.addonsTotal),
+            discountTotal: toPence(b.discountTotal),
+            serviceFee: toPence(b.serviceFee),
+            totalPaid: toPence(b.totalPaid),
             stripeCheckoutSessionId: b.stripeCheckoutSessionId ?? undefined,
             stripePaymentIntentId: b.stripePaymentIntentId ?? undefined,
             taxFreeChildcareRef: b.taxFreeChildcareRef ?? undefined,
@@ -234,16 +300,51 @@ async function adminBookingsRoutes(app: FastifyInstance): Promise<void> {
               ? { id: item.child.id, name: `${item.child.firstName} ${item.child.lastName}`.trim() }
               : undefined,
             lineTotals: {
-              subtotal: toNum(item.lineSubtotal),
-              addonsTotal: toNum(item.lineAddonsTotal),
-              serviceFee: toNum(item.lineServiceFee),
-              total: toNum(item.lineTotal),
+              subtotal: toPence(item.lineSubtotal),
+              addonsTotal: toPence(item.lineAddonsTotal),
+              serviceFee: toPence(item.lineServiceFee),
+              total: toPence(item.lineTotal),
             },
           })),
           receipt: {
             downloadUrl: b.receiptUrl ?? undefined,
           },
         })),
+        ...sessionBookings.map((b) => ({
+          bookingId: b.id,
+          bookingReference: b.id.toUpperCase().slice(0, 8),
+          status: statusMap[b.status] ?? String(b.status).toLowerCase(),
+          createdAt: b.createdAt.toISOString(),
+          customer: {
+            id: b.userId,
+            name: `${b.user.firstName} ${b.user.lastName}`.trim() || '—',
+            email: b.user.email,
+          },
+          payment: {
+            method: b.paymentType.toLowerCase(),
+            currency: (b.payment?.currency ?? 'gbp').toUpperCase(),
+            totalPaid: toPence(b.payment?.amount ?? b.price),
+          },
+          items: [
+            {
+              itemId: `session-${b.id}`,
+              event: {
+                id: b.session.id,
+                title: b.session.service.title,
+                location: b.session.location,
+              },
+              date: toDateOnly(b.session.date),
+              slot: { startTime: b.session.time },
+            },
+          ],
+        })),
+      ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+      const total = eventTotal + sessionTotal;
+      const pagedRows = rows.slice(skip, skip + pageSize);
+
+      await reply.status(200).send({
+        data: pagedRows,
         page,
         pageSize,
         total,
@@ -328,6 +429,125 @@ async function adminBookingsRoutes(app: FastifyInstance): Promise<void> {
           createdAt: item.createdAt.toISOString(),
         })),
       });
+    },
+  });
+
+  app.patch('/api/v1/admin/bookings/:bookingId', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Update booking status by ID (event or session booking)',
+      security: [{ BearerAuth: [] }],
+      params: { type: 'object', properties: { bookingId: { type: 'string' } } },
+      body: {
+        type: 'object',
+        required: ['status'],
+        properties: {
+          status: { type: 'string' },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            bookingId: { type: 'string' },
+            status: { type: 'string' },
+          },
+        },
+      },
+    },
+    preHandler: [
+      ...adminGuard,
+      validate({ params: BookingIdParamSchema, body: AdminBookingUpdateBodySchema }),
+    ],
+    handler: async (
+      request: FastifyRequest<{ Params: { bookingId: string }; Body: { status: string } }>,
+      reply: FastifyReply,
+    ) => {
+      const { bookingId } = request.params;
+      const normalizedStatus = normalizeStatus(request.body.status);
+      if (!normalizedStatus) {
+        throw new AppError('VALIDATION_ERROR', 'Invalid booking status.', 400);
+      }
+
+      const cancelledAt = normalizedStatus === 'CANCELLED' ? new Date() : null;
+      const updateData = { status: normalizedStatus, cancelledAt };
+
+      try {
+        const eventBooking = await prisma.calendarEventBooking.update({
+          where: { id: bookingId },
+          data: updateData,
+        });
+        await reply.status(200).send({
+          bookingId: eventBooking.id,
+          status: toApiStatus(eventBooking.status),
+        });
+        return;
+      } catch (error) {
+        if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2025') {
+          throw error;
+        }
+      }
+
+      try {
+        const sessionBooking = await prisma.booking.update({
+          where: { id: bookingId },
+          data: updateData,
+        });
+        await reply.status(200).send({
+          bookingId: sessionBooking.id,
+          status: toApiStatus(sessionBooking.status),
+        });
+        return;
+      } catch (error) {
+        if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2025') {
+          throw error;
+        }
+      }
+
+      throw new AppError('BOOKING_NOT_FOUND', 'Booking not found.', 404);
+    },
+  });
+
+  app.delete('/api/v1/admin/bookings/:bookingId', {
+    schema: {
+      tags: ['Admin'],
+      summary: 'Cancel (soft delete) booking by ID (event or session booking)',
+      security: [{ BearerAuth: [] }],
+      params: { type: 'object', properties: { bookingId: { type: 'string' } } },
+      response: { 204: { type: 'null' } },
+    },
+    preHandler: [...adminGuard, validate({ params: BookingIdParamSchema })],
+    handler: async (request: FastifyRequest<{ Params: { bookingId: string } }>, reply: FastifyReply) => {
+      const { bookingId } = request.params;
+      const cancelData = { status: 'CANCELLED' as BookingStatus, cancelledAt: new Date() };
+
+      try {
+        await prisma.calendarEventBooking.update({
+          where: { id: bookingId },
+          data: cancelData,
+        });
+        await reply.status(204).send();
+        return;
+      } catch (error) {
+        if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2025') {
+          throw error;
+        }
+      }
+
+      try {
+        await prisma.booking.update({
+          where: { id: bookingId },
+          data: cancelData,
+        });
+        await reply.status(204).send();
+        return;
+      } catch (error) {
+        if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2025') {
+          throw error;
+        }
+      }
+
+      throw new AppError('BOOKING_NOT_FOUND', 'Booking not found.', 404);
     },
   });
 

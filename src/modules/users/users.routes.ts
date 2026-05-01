@@ -31,6 +31,8 @@ const userProfileSchema = {
     registrationNumber: { type: 'string' },
     website: { type: 'string' },
     adminFullName: { type: 'string' },
+    isSchoolApproved: { type: 'boolean' },
+    schoolApprovalStatus: { type: 'string', enum: ['pending', 'approved', 'rejected'] },
   },
 };
 

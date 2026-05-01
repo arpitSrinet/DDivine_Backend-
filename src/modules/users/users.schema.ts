@@ -30,6 +30,8 @@ export const UserProfileResponseSchema = z.object({
   registrationNumber: z.string().optional(),
   website: z.string().optional(),
   adminFullName: z.string().optional(),
+  isSchoolApproved: z.boolean().optional(),
+  schoolApprovalStatus: z.enum(['pending', 'approved', 'rejected']).optional(),
 });
 
 export const UpdateProfileSchema = z.object({

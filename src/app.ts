@@ -33,6 +33,7 @@ import adminMediaRoutes from '@/modules/admin-media/admin-media.routes.js';
 import adminPaymentsRoutes from '@/modules/admin-payments/admin-payments.routes.js';
 import adminRefundsRoutes from '@/modules/admin-refunds/admin-refunds.routes.js';
 import adminRolesRoutes from '@/modules/admin-roles/admin-roles.routes.js';
+import adminSchoolsRoutes from '@/modules/admin-schools/admin-schools.routes.js';
 import adminScoresRoutes from '@/modules/admin-scores/admin-scores.routes.js';
 import adminServicesRoutes from '@/modules/admin-services/admin-services.routes.js';
 import adminSessionsRoutes from '@/modules/admin-sessions/admin-sessions.routes.js';
@@ -47,6 +48,8 @@ import { emailQueue } from '@/modules/jobs/queues/email.queue.js';
 import { invoiceQueue } from '@/modules/jobs/queues/invoice.queue.js';
 import { startEmailWorker } from '@/modules/jobs/workers/email.worker.js';
 import { startInvoiceWorker } from '@/modules/jobs/workers/invoice.worker.js';
+import { xeroQueue } from '@/modules/jobs/queues/xero.queue.js';
+import { startXeroWorker } from '@/modules/jobs/workers/xero.worker.js';
 import eventsRoutes from '@/modules/events/events.routes.js';
 import eventsV2Routes from '@/modules/events/events-v2.routes.js';
 import knowledgeRoutes from '@/modules/knowledge/knowledge.routes.js';
@@ -65,7 +68,6 @@ import { logger } from '@/shared/infrastructure/logger.js';
 import { prisma } from '@/shared/infrastructure/prisma.js';
 import { redis } from '@/shared/infrastructure/redis.js';
 import requestId from '@/shared/middleware/requestId.js';
-import { xeroService } from '@/modules/xero/xero.service.js';
 
 type CompatibleBullBoardQueueAdapter = NonNullable<
   Parameters<typeof createBullBoard>[0]['queues']
@@ -150,6 +152,7 @@ export async function buildApp() {
         { name: 'Event Bookings', description: 'Multi-step event booking flow, checkout, and receipts' },
         { name: 'Schools', description: 'School profile management' },
         { name: 'Admin', description: 'Admin system — requires ADMIN role' },
+        { name: 'Xero', description: 'Xero accounting integration — OAuth, invoice sync, PDF' },
       ],
     },
   });
@@ -184,6 +187,7 @@ export async function buildApp() {
     queues: [
       new BullMQAdapter(emailQueue) as unknown as CompatibleBullBoardQueueAdapter,
       new BullMQAdapter(invoiceQueue) as unknown as CompatibleBullBoardQueueAdapter,
+      new BullMQAdapter(xeroQueue) as unknown as CompatibleBullBoardQueueAdapter,
     ],
     serverAdapter,
   });
@@ -228,6 +232,7 @@ export async function buildApp() {
   await app.register(adminScoresRoutes);
   await app.register(adminLeagueGameRequestsRoutes);
   await app.register(adminRolesRoutes);
+  await app.register(adminSchoolsRoutes);
   await app.register(contactRoutes);
   await app.register(xeroRoutes);
 
@@ -235,20 +240,22 @@ export async function buildApp() {
   registerPaymentHandlers();
   startEmailWorker();
   startInvoiceWorker();
+  startXeroWorker();
 
-  // --- Optional: poll Xero to sync government payment invoices ---
+  // --- Optional: schedule repeatable Xero government invoice sync via BullMQ ---
+  // Uses BullMQ's distributed repeat lock so only one instance processes each tick,
+  // making this safe for multi-instance deployments (unlike setInterval).
   const xeroPollSeconds = env.XERO_GOV_SYNC_INTERVAL_SECONDS ?? 0;
   if (xeroPollSeconds > 0) {
-    setInterval(async () => {
-      try {
-        const result = await xeroService.syncGovernmentPendingBookings();
-        if (result.synced > 0) {
-          logger.info({ synced: result.synced }, 'Xero government booking sync completed');
-        }
-      } catch (err) {
-        logger.error({ err }, 'Xero government booking sync failed');
-      }
-    }, xeroPollSeconds * 1000);
+    await xeroQueue.add(
+      'sync-government-pending',
+      {},
+      {
+        repeat: { every: xeroPollSeconds * 1000 },
+        jobId: 'xero-gov-sync',
+      },
+    );
+    logger.info({ intervalSeconds: xeroPollSeconds }, 'Xero government sync scheduled via BullMQ');
   }
 
   // --- Health routes ---

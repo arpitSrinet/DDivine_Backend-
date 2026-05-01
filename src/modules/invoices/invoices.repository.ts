@@ -6,9 +6,12 @@
 import { prisma } from '@/shared/infrastructure/prisma.js';
 
 export const invoicesRepository = {
-  async create(paymentId: string) {
+  async create(paymentId: string, xeroInvoiceId?: string) {
     return prisma.invoice.create({
-      data: { paymentId },
+      data: {
+        paymentId,
+        ...(xeroInvoiceId ? { xeroInvoiceId } : {}),
+      },
     });
   },
 

@@ -29,6 +29,8 @@ function mapToProfileResponse(user: {
   schoolType: string | null;
   registrationNumber: string | null;
   website: string | null;
+  isSchoolApproved: boolean;
+  schoolApprovalStatus: 'PENDING' | 'APPROVED' | 'REJECTED';
 }): IUserProfileResponse {
   const isSchoolUser = user.role === 'SCHOOL';
   const adminFullName = `${user.firstName} ${user.lastName}`.trim();
@@ -53,6 +55,8 @@ function mapToProfileResponse(user: {
       }),
     ...(isSchoolUser && user.website && { website: user.website }),
     ...(isSchoolUser && { adminFullName }),
+    ...(isSchoolUser && { isSchoolApproved: user.isSchoolApproved }),
+    ...(isSchoolUser && { schoolApprovalStatus: user.schoolApprovalStatus.toLowerCase() as 'pending' | 'approved' | 'rejected' }),
   };
 }
 

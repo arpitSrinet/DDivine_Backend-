@@ -272,7 +272,13 @@ export const xeroService = {
   async markInvoicePaidForBooking(bookingId: string, amount: number): Promise<void> {
     const booking = await xeroRepository.findBookingById(bookingId);
     if (!booking?.xeroInvoiceId) return;
-    if (!env.XERO_PAYMENT_ACCOUNT_CODE) return;
+    if (!env.XERO_PAYMENT_ACCOUNT_CODE) {
+      throw new AppError(
+        'SERVER_ERROR',
+        'XERO_PAYMENT_ACCOUNT_CODE is not configured — cannot record payment in Xero.',
+        500,
+      );
+    }
 
     const connection = await getValidConnection();
 
@@ -301,7 +307,7 @@ export const xeroService = {
     if (!response.ok) {
       const details = await response.text();
       logger.error({ bookingId, details }, 'Xero mark-paid failed');
-      return;
+      throw new AppError('SERVER_ERROR', 'Failed to record payment in Xero.', 502);
     }
 
     await xeroRepository.updateBookingInvoiceLink(booking.id, {
@@ -339,14 +345,6 @@ export const xeroService = {
       bookingStatus: mapped.bookingStatus,
       xeroInvoiceStatus: status,
     });
-  },
-
-  async syncGovernmentPendingBookings(): Promise<{ synced: number }> {
-    const pending = await xeroRepository.findBookingsPendingGovernmentSync();
-    for (const row of pending) {
-      await this.syncBookingInvoiceStatus(row.id);
-    }
-    return { synced: pending.length };
   },
 
   async downloadInvoicePdfForBooking(params: {
@@ -468,6 +466,307 @@ export const xeroService = {
     if (!response.ok) {
       const details = await response.text();
       logger.error({ bookingId: booking.id, details }, 'Xero credit note create failed');
+      throw new AppError('SERVER_ERROR', 'Failed to create Xero credit note.', 502);
+    }
+  },
+
+  async syncGovernmentPendingBookings(): Promise<{ synced: number }> {
+    const [sessionPending, eventPending] = await Promise.all([
+      xeroRepository.findBookingsPendingGovernmentSync(),
+      xeroRepository.findEventBookingsPendingGovernmentSync(),
+    ]);
+
+    for (const row of sessionPending) {
+      await this.syncBookingInvoiceStatus(row.id);
+    }
+    for (const row of eventPending) {
+      await this.syncEventBookingInvoiceStatus(row.id);
+    }
+
+    return { synced: sessionPending.length + eventPending.length };
+  },
+
+  // ─── Event Booking Xero methods ───────────────────────────────────────────
+
+  async createInvoiceForEventBooking(bookingId: string): Promise<void> {
+    const booking = await xeroRepository.findEventBookingForInvoice(bookingId);
+    if (!booking) return;
+    if (booking.xeroInvoiceId) return;
+
+    const connection = await getValidConnection();
+
+    const isTfc = booking.paymentMethod === 'TAX_FREE_CHILDCARE';
+    const tfcSuffix = isTfc ? ' | TFC Ref Required' : '';
+    const bookingRef = booking.bookingReference ?? `EVT-${booking.id.slice(-8).toUpperCase()}`;
+
+    const description = [
+      `Booking Ref: ${bookingRef}`,
+      ...booking.items.map((item) => {
+        const date = item.slot.eventDate.date.toISOString().split('T')[0];
+        const child = item.child
+          ? `${item.child.firstName} ${item.child.lastName}`
+          : 'No attendee';
+        return `${item.slot.eventDate.event.title} | ${date} ${item.slot.startTime}–${item.slot.endTime} | ${child}`;
+      }),
+      `Contact: ${booking.fullName ?? `${booking.user.firstName} ${booking.user.lastName}`}`,
+      tfcSuffix,
+    ]
+      .filter(Boolean)
+      .join(' | ');
+
+    const contactName = (
+      booking.fullName ?? `${booking.user.firstName} ${booking.user.lastName}`
+    ).trim();
+    const contactEmail = booking.email ?? booking.user.email;
+
+    const payload = {
+      Type: 'ACCREC',
+      Contact: { Name: contactName, EmailAddress: contactEmail },
+      Date: new Date().toISOString().split('T')[0],
+      DueDate: new Date().toISOString().split('T')[0],
+      Reference: `${bookingRef}${tfcSuffix}`,
+      Status: 'AUTHORISED',
+      LineItems: [
+        {
+          Description: description,
+          Quantity: 1,
+          UnitAmount: booking.totalPaid.toNumber(),
+          ...(env.XERO_PAYMENT_ACCOUNT_CODE ? { AccountCode: env.XERO_PAYMENT_ACCOUNT_CODE } : {}),
+        },
+      ],
+    };
+
+    const response = await fetch(`${XERO_ACCOUNTING_BASE}/Invoices`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${connection.accessToken}`,
+        'Xero-tenant-id': connection.tenantId,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const details = await response.text();
+      logger.error({ bookingId, details }, 'Xero event invoice create failed');
+      throw new AppError('SERVER_ERROR', 'Failed to create Xero invoice for event booking.', 502);
+    }
+
+    const data = (await response.json()) as {
+      Invoices?: Array<{ InvoiceID: string; Status: string }>;
+    };
+    const created = data.Invoices?.[0];
+    if (!created?.InvoiceID) {
+      throw new AppError('SERVER_ERROR', 'Xero did not return an invoice id for event booking.', 502);
+    }
+
+    await xeroRepository.updateEventBookingInvoiceLink(booking.id, {
+      xeroInvoiceId: created.InvoiceID,
+      xeroInvoiceStatus: created.Status ?? 'AUTHORISED',
+    });
+  },
+
+  async markEventInvoicePaidForBooking(bookingId: string, amount: number): Promise<void> {
+    const booking = await xeroRepository.findEventBookingById(bookingId);
+    if (!booking?.xeroInvoiceId) return;
+    if (!env.XERO_PAYMENT_ACCOUNT_CODE) {
+      throw new AppError(
+        'SERVER_ERROR',
+        'XERO_PAYMENT_ACCOUNT_CODE is not configured — cannot record payment in Xero.',
+        500,
+      );
+    }
+
+    const connection = await getValidConnection();
+
+    const payload = {
+      Payments: [
+        {
+          Invoice: { InvoiceID: booking.xeroInvoiceId },
+          Account: { Code: env.XERO_PAYMENT_ACCOUNT_CODE },
+          Date: new Date().toISOString().split('T')[0],
+          Amount: amount,
+        },
+      ],
+    };
+
+    const response = await fetch(`${XERO_ACCOUNTING_BASE}/Payments`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${connection.accessToken}`,
+        'Xero-tenant-id': connection.tenantId,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const details = await response.text();
+      logger.error({ bookingId, details }, 'Xero event mark-paid failed');
+      throw new AppError('SERVER_ERROR', 'Failed to record event booking payment in Xero.', 502);
+    }
+
+    await xeroRepository.updateEventBookingInvoiceLink(booking.id, {
+      xeroInvoiceId: booking.xeroInvoiceId,
+      xeroInvoiceStatus: 'PAID',
+    });
+  },
+
+  async syncEventBookingInvoiceStatus(bookingId: string): Promise<void> {
+    const booking = await xeroRepository.findEventBookingById(bookingId);
+    if (!booking?.xeroInvoiceId) return;
+
+    const connection = await getValidConnection();
+    const response = await fetch(`${XERO_ACCOUNTING_BASE}/Invoices/${booking.xeroInvoiceId}`, {
+      headers: {
+        Authorization: `Bearer ${connection.accessToken}`,
+        'Xero-tenant-id': connection.tenantId,
+        Accept: 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const details = await response.text();
+      logger.error({ bookingId, details }, 'Xero event invoice sync failed');
+      return;
+    }
+
+    const data = (await response.json()) as { Invoices?: Array<{ Status: string }> };
+    const status = data.Invoices?.[0]?.Status;
+    if (!status) return;
+
+    const mapped = mapXeroInvoiceStatus(status);
+    await xeroRepository.updateEventBookingFromXeroStatus(booking.id, {
+      bookingStatus: mapped.bookingStatus,
+      xeroInvoiceStatus: status,
+    });
+  },
+
+  async downloadInvoicePdfForEventBooking(params: {
+    bookingId: string;
+    requesterUserId: string;
+    isAdmin: boolean;
+  }): Promise<Buffer> {
+    const booking = await xeroRepository.findEventBookingInvoiceAccess(params.bookingId);
+    if (!booking) {
+      throw new AppError('BOOKING_NOT_FOUND', 'Event booking not found.', 404);
+    }
+    if (!params.isAdmin && booking.userId !== params.requesterUserId) {
+      throw new AppError('FORBIDDEN', 'You are not allowed to access this invoice.', 403);
+    }
+    if (!booking.xeroInvoiceId) {
+      throw new AppError('VALIDATION_ERROR', 'No Xero invoice linked to this booking yet.', 404);
+    }
+
+    const connection = await getValidConnection();
+    const response = await fetch(`${XERO_ACCOUNTING_BASE}/Invoices/${booking.xeroInvoiceId}`, {
+      headers: {
+        Authorization: `Bearer ${connection.accessToken}`,
+        'Xero-tenant-id': connection.tenantId,
+        Accept: 'application/pdf',
+      },
+    });
+
+    if (!response.ok) {
+      const details = await response.text();
+      logger.error({ bookingId: booking.id, details }, 'Xero event invoice PDF download failed');
+      throw new AppError('SERVER_ERROR', 'Failed to download event invoice PDF from Xero.', 502);
+    }
+
+    const arr = await response.arrayBuffer();
+    return Buffer.from(arr);
+  },
+
+  async emailInvoiceForEventBooking(params: {
+    bookingId: string;
+    requesterUserId: string;
+    isAdmin: boolean;
+  }): Promise<void> {
+    const booking = await xeroRepository.findEventBookingInvoiceAccess(params.bookingId);
+    if (!booking) {
+      throw new AppError('BOOKING_NOT_FOUND', 'Event booking not found.', 404);
+    }
+    if (!params.isAdmin && booking.userId !== params.requesterUserId) {
+      throw new AppError('FORBIDDEN', 'You are not allowed to email this invoice.', 403);
+    }
+    if (!booking.xeroInvoiceId) {
+      throw new AppError('VALIDATION_ERROR', 'No Xero invoice linked to this booking yet.', 404);
+    }
+
+    const connection = await getValidConnection();
+    const response = await fetch(
+      `${XERO_ACCOUNTING_BASE}/Invoices/${booking.xeroInvoiceId}/Email`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${connection.accessToken}`,
+          'Xero-tenant-id': connection.tenantId,
+          Accept: 'application/json',
+        },
+      },
+    );
+
+    if (!response.ok) {
+      const details = await response.text();
+      logger.error({ bookingId: booking.id, details }, 'Xero event invoice email send failed');
+      throw new AppError('SERVER_ERROR', 'Failed to trigger event invoice email in Xero.', 502);
+    }
+  },
+
+  async createCreditNoteForEventBookingRefund(params: {
+    bookingId: string;
+    amount: number;
+    reason: string;
+  }): Promise<void> {
+    const booking = await xeroRepository.findEventBookingForInvoice(params.bookingId);
+    if (!booking?.xeroInvoiceId) return;
+    if (!Number.isFinite(params.amount) || params.amount <= 0) return;
+
+    const connection = await getValidConnection();
+
+    const bookingRef = booking.bookingReference ?? `EVT-${booking.id.slice(-8).toUpperCase()}`;
+    const contactName = (
+      booking.fullName ?? `${booking.user.firstName} ${booking.user.lastName}`
+    ).trim();
+    const contactEmail = booking.email ?? booking.user.email;
+
+    const payload = {
+      CreditNotes: [
+        {
+          Type: 'ACCRECCREDIT',
+          Contact: { Name: contactName, EmailAddress: contactEmail },
+          Date: new Date().toISOString().split('T')[0],
+          Status: 'AUTHORISED',
+          Reference: bookingRef,
+          LineItems: [
+            {
+              Description: `Refund for ${bookingRef} | Reason: ${params.reason}`,
+              Quantity: 1,
+              UnitAmount: params.amount,
+              ...(env.XERO_PAYMENT_ACCOUNT_CODE ? { AccountCode: env.XERO_PAYMENT_ACCOUNT_CODE } : {}),
+            },
+          ],
+        },
+      ],
+    };
+
+    const response = await fetch(`${XERO_ACCOUNTING_BASE}/CreditNotes`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${connection.accessToken}`,
+        'Xero-tenant-id': connection.tenantId,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const details = await response.text();
+      logger.error({ bookingId: booking.id, details }, 'Xero event credit note create failed');
+      throw new AppError('SERVER_ERROR', 'Failed to create Xero credit note for event booking.', 502);
     }
   },
 };
