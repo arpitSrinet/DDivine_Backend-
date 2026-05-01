@@ -59,6 +59,19 @@ async function start() {
     logger.fatal({ err }, 'Failed to start server');
     process.exit(1);
   }
+
+  // Neon serverless suspends the database after ~5 minutes of inactivity, which
+  // closes existing TCP connections and causes Prisma to surface a "Closed" error.
+  // Pinging every 4 minutes keeps the connection alive for as long as the server runs.
+  const DB_KEEPALIVE_MS = 4 * 60 * 1000;
+  setInterval(async () => {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      logger.debug('DB keepalive ping OK');
+    } catch (err) {
+      logger.warn({ err }, 'DB keepalive ping failed — connection will be re-established on next query');
+    }
+  }, DB_KEEPALIVE_MS);
 }
 
 void start();
