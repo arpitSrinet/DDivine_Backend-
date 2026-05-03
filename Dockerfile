@@ -21,4 +21,5 @@ RUN npm run build
 EXPOSE 3000
 
 # Use tsx in the container because the compiled JS still contains tsconfig path aliases.
-CMD ["npx", "tsx", "--env-file=.env", "src/server.ts"]
+# Rely on process.env from the platform (do not require a baked-in .env file).
+CMD ["npx", "tsx", "src/server.ts"]

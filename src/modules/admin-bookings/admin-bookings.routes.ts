@@ -4,7 +4,7 @@
  * Requires ADMIN role.
  * @module src/modules/admin-bookings/admin-bookings.routes
  */
-import type { BookingStatus, Prisma } from '@prisma/client';
+import { Prisma, type BookingStatus } from '@prisma/client';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 import { z } from 'zod';
